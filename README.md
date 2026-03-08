@@ -85,7 +85,16 @@ export DELEGATE_RANKED_CHALLENGES="<challenge-id-1>,<challenge-id-2>"
 export DELEGATE_REWARD_CLAIMS="<wallet>:<match-id>:0,<wallet>:<match-id>:1"
 ```
 
-5. (Optional) Rotate reward SPL mint + treasury account
+5. Commit delegated PDAs from ER back to base layer
+
+```bash
+bun run @programs/scripts/05_commit_guessr_state.ts
+```
+
+This script uses the same `DELEGATE_*` input envs as step 4 to discover dynamic PDAs.
+It commits lobby/ranked config plus all discovered existing PDAs in one transaction when possible, with automatic split fallback on transaction-size limits.
+
+6. (Optional) Rotate reward SPL mint + treasury account
 
 ```bash
 export NEXT_REWARD_MINT="<new-mint>"
@@ -93,7 +102,7 @@ export NEXT_REWARD_TREASURY_TOKEN_ACCOUNT="<new-treasury-token-account>"
 bun run @programs/scripts/06_set_ranked_reward_mint.ts
 ```
 
-6. Test multiplayer A/B flow (join lobby -> enter room -> heartbeat)
+7. Test multiplayer A/B flow (join lobby -> enter room -> heartbeat)
 
 ```bash
 solana-keygen new --no-bip39-passphrase --force -o @programs/keys/user-a.json
@@ -105,19 +114,19 @@ export USER_C_KEYPAIR="@programs/keys/user-c.json"
 bun run @programs/scripts/07_test_multiplayer_room_flow.ts
 ```
 
-7. Presence sequence test (A -> B -> C and online count increments)
+8. Presence sequence test (A -> B -> C and online count increments)
 
 ```bash
 bun run @programs/scripts/08_lobby_presence_sequence.ts
 ```
 
-8. Duel simulation (A and B join lobby, enter same room, heartbeat, clear room)
+9. Duel simulation (A and B join lobby, enter same room, heartbeat, clear room)
 
 ```bash
 bun run @programs/scripts/09_duel_simulation.ts
 ```
 
-9. Ranked solo simulation (open room -> per-action update tx -> settle -> close, checks SPL balance delta)
+10. Ranked solo simulation (open room -> per-action update tx -> settle -> close, checks SPL balance delta)
 
 ```bash
 export RANKED_TEST_SCORE=500

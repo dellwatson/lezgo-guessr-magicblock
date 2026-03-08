@@ -2,6 +2,7 @@ use anchor_lang::prelude::*;
 use ephemeral_rollups_sdk::anchor::{commit, delegate};
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
 use ephemeral_rollups_sdk::ephem::commit_accounts;
+use std::collections::HashSet;
 
 use crate::constants::{MATCH_MODE_DUEL, MATCH_MODE_RANKED_SOLO};
 use crate::error::GuessrError;
@@ -95,14 +96,29 @@ pub fn delegate_guessr_state_handler(
     Ok(())
 }
 
-pub fn commit_guessr_state_handler(ctx: Context<CommitGuessrState>) -> Result<()> {
-    // Commit global Guessr PDAs from ER back to base layer.
+pub fn commit_guessr_state_handler<'info>(
+    ctx: Context<'_, '_, '_, 'info, CommitGuessrState<'info>>,
+) -> Result<()> {
+    // Commit global Guessr PDAs + any additional PDA accounts passed in remaining_accounts.
+    // This allows batching many commits with one instruction when transaction size permits.
+    let lobby_state_info = ctx.accounts.lobby_state.to_account_info();
+    let ranked_config_info = ctx.accounts.ranked_config.to_account_info();
+
+    let mut commit_targets = vec![&lobby_state_info, &ranked_config_info];
+    let mut seen = HashSet::from([*lobby_state_info.key, *ranked_config_info.key]);
+
+    for account in ctx.remaining_accounts.iter() {
+        if !account.is_writable {
+            continue;
+        }
+        if seen.insert(*account.key) {
+            commit_targets.push(account);
+        }
+    }
+
     commit_accounts(
         &ctx.accounts.payer,
-        vec![
-            &ctx.accounts.lobby_state.to_account_info(),
-            &ctx.accounts.ranked_config.to_account_info(),
-        ],
+        commit_targets,
         &ctx.accounts.magic_context,
         &ctx.accounts.magic_program,
     )?;

@@ -202,7 +202,9 @@ pub mod guessr_multiplayer_program {
         instructions::delegate_guessr_state_handler(ctx, args)
     }
 
-    pub fn commit_guessr_state(ctx: Context<CommitGuessrState>) -> Result<()> {
+    pub fn commit_guessr_state<'info>(
+        ctx: Context<'_, '_, '_, 'info, CommitGuessrState<'info>>,
+    ) -> Result<()> {
         instructions::commit_guessr_state_handler(ctx)
     }
 }

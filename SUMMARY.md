@@ -93,7 +93,7 @@
     ⇒ generates `delegate_pda(&payer, seeds, DelegateConfig)` for **one** `#[account(del)]` field (`pda`).
 
   - `#[commit]` on [CommitGuessrState<'info>](cci:2://file:///Users/dellwatson/Desktop/2026-LEZGO-MOGATE/tixia-expo/@programs/magicblock-guessr/src/instructions/er.rs:63:0-87:1)  
-    ⇒ wraps `commit_accounts` for a fixed list of PDAs (here: `LobbyState`, [RankedConfig](cci:2://file:///Users/dellwatson/Desktop/2026-LEZGO-MOGATE/tixia-expo/@programs/magicblock-guessr/src/state/ranked.rs:3:0-13:1)).
+    ⇒ injects ER magic accounts, while handler logic commits `LobbyState` + `RankedConfig` and any additional writable `remaining_accounts`.
 
 - Delegation handler now accepts a target selector + seed inputs and can derive:
   - `LobbyState`, `RankedConfig`
@@ -104,3 +104,9 @@
   - Tries one-transaction delegation first.
   - Automatically splits into multiple transactions only when transaction size limits are hit.
   - Delegates all required existing PDAs from the configured global/player/duel/ranked/reward inputs.
+- Commit handler now commits:
+  - Always: `LobbyState` + `RankedConfig`.
+  - Plus: any additional writable PDAs passed via `remaining_accounts`.
+- New script: `@programs/scripts/05_commit_guessr_state.ts`
+  - Tries committing all discovered existing PDAs in one transaction.
+  - Automatically splits by account chunks if transaction-size limits are hit.

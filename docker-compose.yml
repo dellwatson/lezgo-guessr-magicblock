@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  solana-builder:
+    build: .
+    container_name: solana-guessr-builder
+    volumes:
+      - ./artifacts:/app/artifacts
+      - ./target:/app/target
+    environment:
+      - RUST_LOG=info
+    command: bash -c "
+      echo 'Building Solana program with latest toolchain...' &&
+      cd magicblock-guessr &&
+      cargo build-sbf --verbose &&
+      echo 'Build completed. Checking for artifacts...' &&
+      ls -la target/deploy/ || echo 'No deploy directory found' &&
+      find target -name '*.so' -o -name '*.dylib' | head -10 &&
+      echo 'Copying artifacts...' &&
+      mkdir -p ../artifacts &&
+      cp target/deploy/*.so ../artifacts/ 2>/dev/null || cp target/release/libguessr_multiplayer_program.so ../artifacts/ 2>/dev/null || echo 'No .so file found to copy' &&
+      ls -la ../artifacts/ &&
+      echo 'Done! Container will stay running for inspection.'
+    "
+    # Keep container running
+    tty: true
+    stdin_open: true

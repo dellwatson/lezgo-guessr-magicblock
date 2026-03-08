@@ -1,0 +1,7 @@
+target
+*/target
+**/target
+
+# local build artifacts and program keypairs
+artifacts/
+keys/

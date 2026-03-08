@@ -1,0 +1,16 @@
+export {
+  commitEphemeralRound,
+  commitPlayerProfileResult,
+  delegateEphemeralSession,
+  heartbeatEphemeralLobby,
+  joinEphemeralLobby,
+  openEphemeralRoom,
+  pruneStaleEphemeralPlayer,
+  settleEphemeralWinner,
+  updateEphemeralPlayerState,
+  type DelegationRequest,
+  type MatchResultCommitRequest,
+  type PlayerStateUpdateRequest,
+  type RoomOpenRequest,
+  type RoundCommitRequest,
+} from '@/lib/magicblock/magicblock-multiplayer-program';

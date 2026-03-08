@@ -1,0 +1,7 @@
+delegate
+
+- add ping
+- chat -> chat group (room-chat?)
+
+- lobby-join
+- room-

@@ -23,10 +23,18 @@ impl LeaderboardState {
     pub fn reset(&mut self, bump: u8, now_ts: i64) {
         self.last_update_ts = now_ts;
         self.bump = bump;
-        self.xp = [LeaderboardEntry::default(); LEADERBOARD_ENTRIES];
-        self.winrate = [LeaderboardEntry::default(); LEADERBOARD_ENTRIES];
-        self.net_earnings = [LeaderboardEntry::default(); LEADERBOARD_ENTRIES];
-        self.reward_earned = [LeaderboardEntry::default(); LEADERBOARD_ENTRIES];
+        for entry in self.xp.iter_mut() {
+            *entry = LeaderboardEntry::default();
+        }
+        for entry in self.winrate.iter_mut() {
+            *entry = LeaderboardEntry::default();
+        }
+        for entry in self.net_earnings.iter_mut() {
+            *entry = LeaderboardEntry::default();
+        }
+        for entry in self.reward_earned.iter_mut() {
+            *entry = LeaderboardEntry::default();
+        }
         self.reserved = [0; 32];
     }
 }

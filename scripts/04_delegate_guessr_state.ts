@@ -1,4 +1,4 @@
-import { PublicKey, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import {
   anchorDiscriminator,
   concatBinary,
@@ -23,7 +23,11 @@ const ROOM_ID_SEED = new TextEncoder().encode('room-id');
 const DUEL_ROOM_SEED = new TextEncoder().encode('duel-room');
 const RANKED_ROOM_SEED = new TextEncoder().encode('ranked-room');
 const REWARD_CLAIM_SEED = new TextEncoder().encode('reward-claim');
+const DELEGATE_BUFFER_TAG = new TextEncoder().encode('buffer');
+const DELEGATION_RECORD_TAG = new TextEncoder().encode('delegation');
+const DELEGATION_METADATA_TAG = new TextEncoder().encode('delegation-metadata');
 const DEFAULT_MAGICBLOCK_VALIDATOR = 'MUS3hc9TCw4cGC12vHNoYcCGzJG1txjgQLZWVoenHNd';
+const DEFAULT_DELEGATION_PROGRAM_ID = 'DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh';
 
 const DELEGATE_TARGET_LOBBY_STATE = 0;
 const DELEGATE_TARGET_RANKED_CONFIG = 1;
@@ -97,6 +101,19 @@ function resolveMagicblockValidator() {
   }
 
   return new PublicKey(DEFAULT_MAGICBLOCK_VALIDATOR);
+}
+
+function resolveDelegationProgramId() {
+  const raw = process.env.DELEGATION_PROGRAM_ID;
+  if (raw && raw.trim().length > 0) {
+    const parsed = tryParsePublicKey(raw.trim());
+    if (!parsed) {
+      throw new Error(`Invalid DELEGATION_PROGRAM_ID: ${raw}`);
+    }
+    return parsed;
+  }
+
+  return new PublicKey(DEFAULT_DELEGATION_PROGRAM_ID);
 }
 
 function parseRewardClaimInputs(value: string | undefined) {
@@ -193,16 +210,35 @@ function buildDelegateInstruction(params: {
   payer: PublicKey;
   spec: DelegationSpec;
   validator: PublicKey;
+  delegationProgramId: PublicKey;
 }) {
   const player = params.spec.player ?? PublicKey.default;
   const roomOrMatchId = params.spec.roomOrMatchId ?? new Uint8Array(32);
   const mode = params.spec.mode ?? 0;
+  const [bufferPda] = PublicKey.findProgramAddressSync(
+    [DELEGATE_BUFFER_TAG, params.spec.pda.toBytes()],
+    params.programId
+  );
+  const [delegationRecordPda] = PublicKey.findProgramAddressSync(
+    [DELEGATION_RECORD_TAG, params.spec.pda.toBytes()],
+    params.delegationProgramId
+  );
+  const [delegationMetadataPda] = PublicKey.findProgramAddressSync(
+    [DELEGATION_METADATA_TAG, params.spec.pda.toBytes()],
+    params.delegationProgramId
+  );
 
   return new TransactionInstruction({
     programId: params.programId,
     keys: [
       { pubkey: params.payer, isSigner: true, isWritable: true },
+      { pubkey: bufferPda, isSigner: false, isWritable: true },
+      { pubkey: delegationRecordPda, isSigner: false, isWritable: true },
+      { pubkey: delegationMetadataPda, isSigner: false, isWritable: true },
       { pubkey: params.spec.pda, isSigner: false, isWritable: true },
+      { pubkey: params.programId, isSigner: false, isWritable: false },
+      { pubkey: params.delegationProgramId, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
       { pubkey: params.validator, isSigner: false, isWritable: false },
     ],
     data: concatBinary([
@@ -284,6 +320,7 @@ async function main() {
   const payer = loadKeypair(requireEnv('SOLANA_PAYER_KEYPAIR'));
   const programId = resolveGuessrProgramId();
   const validator = resolveMagicblockValidator();
+  const delegationProgramId = resolveDelegationProgramId();
   const players = collectPlayerWallets(payer.publicKey);
   const specs = new Map<string, DelegationSpec>();
 
@@ -448,6 +485,7 @@ async function main() {
       payer: payer.publicKey,
       spec,
       validator,
+      delegationProgramId,
     })
   );
 

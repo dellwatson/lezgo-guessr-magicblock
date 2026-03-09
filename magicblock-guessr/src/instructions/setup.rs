@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{Mint, TokenAccount};
+use anchor_spl::token::TokenAccount;
 
 use crate::constants::{LEADERBOARD_SPACE, LOBBY_STATE_SPACE, RANKED_CONFIG_SPACE};
 use crate::error::GuessrError;
@@ -39,10 +39,13 @@ pub fn initialize_system_handler(
     config.bump = ctx.bumps.ranked_config;
     config.reserved = [0; 13];
 
+    Ok(())
+}
+
+pub fn initialize_leaderboard_handler(ctx: Context<InitializeLeaderboard>) -> Result<()> {
     ctx.accounts
         .leaderboard
         .reset(ctx.bumps.leaderboard, Clock::get()?.unix_timestamp);
-
     Ok(())
 }
 
@@ -66,14 +69,6 @@ pub struct InitializeSystem<'info> {
         bump
     )]
     pub ranked_config: Account<'info, RankedConfig>,
-    #[account(
-        init,
-        payer = authority,
-        space = LEADERBOARD_SPACE,
-        seeds = [b"leaderboard"],
-        bump
-    )]
-    pub leaderboard: Account<'info, LeaderboardState>,
     pub reward_mint: UncheckedAccount<'info>,
     #[account(
         mut,
@@ -83,5 +78,26 @@ pub struct InitializeSystem<'info> {
     /// CHECK: PDA signer for token mint authority.
     #[account(seeds = [b"mint-authority"], bump)]
     pub mint_authority: UncheckedAccount<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct InitializeLeaderboard<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(
+        seeds = [b"lobby-state"],
+        bump = lobby_state.bump,
+        constraint = lobby_state.authority == authority.key() @ GuessrError::Unauthorized,
+    )]
+    pub lobby_state: Account<'info, LobbyState>,
+    #[account(
+        init,
+        payer = authority,
+        space = LEADERBOARD_SPACE,
+        seeds = [b"leaderboard"],
+        bump
+    )]
+    pub leaderboard: Box<Account<'info, LeaderboardState>>,
     pub system_program: Program<'info, System>,
 }

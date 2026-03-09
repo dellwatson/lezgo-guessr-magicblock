@@ -9,7 +9,7 @@ pub const REWARD_CLAIM_SPACE: usize = 8 + 32 + 32 + 1 + 1 + 8 + 1 + 8 + 1 + 6;
 
 pub const RANKED_CONFIG_SPACE: usize = 8 + 32 + 32 + 32 + 8 + 8 + 8 + 1 + 1 + 13;
 pub const RANKED_ROOM_SPACE: usize = 8 + 154;
-pub const LEADERBOARD_ENTRIES: usize = 25;
+pub const LEADERBOARD_ENTRIES: usize = 10;
 pub const LEADERBOARD_SPACE: usize = 8 + 8 + 1 + (LEADERBOARD_ENTRIES * 40 * 4) + 32;
 
 pub const MATCH_MODE_DUEL: u8 = 0;

@@ -412,7 +412,7 @@ pub struct SettleRankedRoom<'info> {
         seeds = [b"leaderboard"],
         bump = leaderboard.bump,
     )]
-    pub leaderboard: Account<'info, LeaderboardState>,
+    pub leaderboard: Box<Account<'info, LeaderboardState>>,
     pub system_program: Program<'info, System>,
 }
 

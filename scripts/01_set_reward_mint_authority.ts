@@ -46,12 +46,13 @@ async function main() {
 
   console.log('Reward mint authority updated');
   console.log('Reward mint:', rewardMint.toBase58());
+  console.log('Guessr program ID:', programId.toBase58());
   console.log('New mint authority PDA:', mintAuthorityPda.toBase58());
   console.log('Signature:', signature);
 
   writeReport(
     '01_set_reward_mint_authority.log',
-    `signature=${signature} mint=${rewardMint.toBase58()} mintAuthority=${mintAuthorityPda.toBase58()}`
+    `signature=${signature} mint=${rewardMint.toBase58()} mintAuthority=${mintAuthorityPda.toBase58()} programId=${programId.toBase58()}`
   );
 }
 

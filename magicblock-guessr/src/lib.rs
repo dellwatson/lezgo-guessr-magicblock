@@ -8,7 +8,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("Cs16ovMuy7gBSJGSDRECLEso4v56PCMENGKWMjdbvECv");
+declare_id!("Emc5brARcye6mt68NaEuAa2X6yLu5eRd7yrevoJLnKDb");
 
 #[ephemeral]
 #[program]
@@ -31,6 +31,10 @@ pub mod guessr_multiplayer_program {
             penalty_divisor,
             penalty_threshold,
         )
+    }
+
+    pub fn initialize_leaderboard(ctx: Context<InitializeLeaderboard>) -> Result<()> {
+        instructions::setup::initialize_leaderboard_handler(ctx)
     }
 
     pub fn join_lobby(

@@ -1,22 +1,39 @@
-import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import {
+  Connection,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  TransactionInstruction,
+  Transaction,
+  sendAndConfirmTransaction,
+} from '@solana/web3.js';
+import {
+  getAssociatedTokenAddress,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from '@solana/spl-token';
+import {
+  PROGRAM_ID,
+  connection,
+  PAYER_KEYPAIR,
+  REWARD_MINT,
+  TREASURY_TOKEN_ACCOUNT,
+  loadKeypair,
+  requireEnv,
+  resolveGuessrProgramId,
+  parsePublicKey,
+  writeReport,
+  getConnection,
+  sendInstruction,
   anchorDiscriminator,
   concatBinary,
   encodeI64,
   encodeU64,
-  getConnection,
-  loadKeypair,
-  parsePublicKey,
-  requireEnv,
-  resolveGuessrProgramId,
-  sendInstruction,
-  writeReport,
 } from './_shared';
 
-const LOBBY_STATE_SEED = new TextEncoder().encode('lobby-state');
-const RANKED_CONFIG_SEED = new TextEncoder().encode('ranked-config');
-const MINT_AUTHORITY_SEED = new TextEncoder().encode('mint-authority');
-const LEADERBOARD_SEED = new TextEncoder().encode('leaderboard');
+const LOBBY_STATE_SEED = 'lobby-state';
+const RANKED_CONFIG_SEED = 'ranked-config';
+const MINT_AUTHORITY_SEED = 'mint-authority';
 
 async function main() {
   const payer = loadKeypair(requireEnv('SOLANA_PAYER_KEYPAIR'));
@@ -28,11 +45,18 @@ async function main() {
   const penaltyDivisor = Number(process.env.PENALTY_DIVISOR || '160');
   const penaltyThreshold = Number(process.env.PENALTY_THRESHOLD || '420');
 
-  const [lobbyStatePda] = PublicKey.findProgramAddressSync([LOBBY_STATE_SEED], guessrProgramId);
-  const [rankedConfigPda] = PublicKey.findProgramAddressSync([RANKED_CONFIG_SEED], guessrProgramId);
-  const [leaderboardPda] = PublicKey.findProgramAddressSync([LEADERBOARD_SEED], guessrProgramId);
-  const [mintAuthorityPda] = PublicKey.findProgramAddressSync(
-    [MINT_AUTHORITY_SEED],
+  const [lobbyStatePda, lobbyStateBump] = PublicKey.findProgramAddressSync(
+    [Buffer.from(LOBBY_STATE_SEED)],
+    guessrProgramId
+  );
+
+  const [rankedConfigPda, rankedConfigBump] = PublicKey.findProgramAddressSync(
+    [Buffer.from(RANKED_CONFIG_SEED)],
+    guessrProgramId
+  );
+
+  const [mintAuthorityPda, mintAuthorityBump] = PublicKey.findProgramAddressSync(
+    [Buffer.from(MINT_AUTHORITY_SEED)],
     guessrProgramId
   );
 
@@ -42,7 +66,6 @@ async function main() {
       { pubkey: payer.publicKey, isSigner: true, isWritable: true },
       { pubkey: lobbyStatePda, isSigner: false, isWritable: true },
       { pubkey: rankedConfigPda, isSigner: false, isWritable: true },
-      { pubkey: leaderboardPda, isSigner: false, isWritable: true },
       { pubkey: rewardMint, isSigner: false, isWritable: false },
       { pubkey: treasuryTokenAccount, isSigner: false, isWritable: true },
       { pubkey: mintAuthorityPda, isSigner: false, isWritable: false },
@@ -67,12 +90,11 @@ async function main() {
   console.log('Guessr system initialized');
   console.log('Lobby PDA:', lobbyStatePda.toBase58());
   console.log('Ranked config PDA:', rankedConfigPda.toBase58());
-  console.log('Leaderboard PDA:', leaderboardPda.toBase58());
   console.log('Mint authority PDA:', mintAuthorityPda.toBase58());
   console.log('Signature:', signature);
   writeReport(
     '03_initialize_guessr_system.log',
-    `signature=${signature} lobby=${lobbyStatePda.toBase58()} rankedConfig=${rankedConfigPda.toBase58()} leaderboard=${leaderboardPda.toBase58()} mintAuthority=${mintAuthorityPda.toBase58()}`
+    `signature=${signature} lobby=${lobbyStatePda.toBase58()} rankedConfig=${rankedConfigPda.toBase58()} mintAuthority=${mintAuthorityPda.toBase58()}`
   );
 }
 

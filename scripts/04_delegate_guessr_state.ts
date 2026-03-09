@@ -23,6 +23,7 @@ const ROOM_ID_SEED = new TextEncoder().encode('room-id');
 const DUEL_ROOM_SEED = new TextEncoder().encode('duel-room');
 const RANKED_ROOM_SEED = new TextEncoder().encode('ranked-room');
 const REWARD_CLAIM_SEED = new TextEncoder().encode('reward-claim');
+const DEFAULT_MAGICBLOCK_VALIDATOR = 'MUS3hc9TCw4cGC12vHNoYcCGzJG1txjgQLZWVoenHNd';
 
 const DELEGATE_TARGET_LOBBY_STATE = 0;
 const DELEGATE_TARGET_RANKED_CONFIG = 1;
@@ -83,6 +84,19 @@ function tryParsePublicKey(value: string) {
   } catch {
     return null;
   }
+}
+
+function resolveMagicblockValidator() {
+  const raw = process.env.MAGICBLOCK_VALIDATOR;
+  if (raw && raw.trim().length > 0) {
+    const parsed = tryParsePublicKey(raw.trim());
+    if (!parsed) {
+      throw new Error(`Invalid MAGICBLOCK_VALIDATOR: ${raw}`);
+    }
+    return parsed;
+  }
+
+  return new PublicKey(DEFAULT_MAGICBLOCK_VALIDATOR);
 }
 
 function parseRewardClaimInputs(value: string | undefined) {
@@ -178,6 +192,7 @@ function buildDelegateInstruction(params: {
   programId: PublicKey;
   payer: PublicKey;
   spec: DelegationSpec;
+  validator: PublicKey;
 }) {
   const player = params.spec.player ?? PublicKey.default;
   const roomOrMatchId = params.spec.roomOrMatchId ?? new Uint8Array(32);
@@ -188,6 +203,7 @@ function buildDelegateInstruction(params: {
     keys: [
       { pubkey: params.payer, isSigner: true, isWritable: true },
       { pubkey: params.spec.pda, isSigner: false, isWritable: true },
+      { pubkey: params.validator, isSigner: false, isWritable: false },
     ],
     data: concatBinary([
       anchorDiscriminator('delegate_guessr_state'),
@@ -267,6 +283,7 @@ async function main() {
   const connection = getConnection();
   const payer = loadKeypair(requireEnv('SOLANA_PAYER_KEYPAIR'));
   const programId = resolveGuessrProgramId();
+  const validator = resolveMagicblockValidator();
   const players = collectPlayerWallets(payer.publicKey);
   const specs = new Map<string, DelegationSpec>();
 
@@ -430,6 +447,7 @@ async function main() {
       programId,
       payer: payer.publicKey,
       spec,
+      validator,
     })
   );
 

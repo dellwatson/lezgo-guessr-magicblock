@@ -1,5 +1,5 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
+use anchor_spl::token::{Mint, TokenAccount};
 
 use crate::constants::{
     ACTION_GUESS_SUBMIT, ACTION_HINT_OPEN, ACTION_MARK_MOVE, MAX_ACCURACY_BPS,
@@ -157,44 +157,7 @@ pub fn update_ranked_state_handler(
             .ok_or(GuessrError::Overflow)?;
     }
 
-    if reward_amount > 0 {
-        let signer_seeds: &[&[u8]] = &[b"mint-authority", &[config.mint_authority_bump]];
-        let cpi_accounts = MintTo {
-            mint: ctx.accounts.reward_mint.to_account_info(),
-            to: ctx.accounts.player_token_account.to_account_info(),
-            authority: ctx.accounts.mint_authority.to_account_info(),
-        };
-        token::mint_to(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                cpi_accounts,
-                &[signer_seeds],
-            ),
-            reward_amount,
-        )?;
-    }
-
-    let mut actual_penalty = 0_u64;
-    if penalty_amount > 0 {
-        // Session-key updates do not own the wallet SPL authority.
-        // Penalty transfer only executes when the wallet is the signer.
-        if authority == wallet_address {
-            let player_balance = ctx.accounts.player_token_account.amount;
-            let transfer_amount = penalty_amount.min(player_balance);
-            if transfer_amount > 0 {
-                let cpi_accounts = Transfer {
-                    from: ctx.accounts.player_token_account.to_account_info(),
-                    to: ctx.accounts.treasury_token_account.to_account_info(),
-                    authority: ctx.accounts.authority.to_account_info(),
-                };
-                token::transfer(
-                    CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
-                    transfer_amount,
-                )?;
-                actual_penalty = transfer_amount;
-            }
-        }
-    }
+    let actual_penalty = penalty_amount;
 
     ranked_room.score = total_score;
     ranked_room.total_earned = ranked_room
@@ -407,27 +370,6 @@ pub struct UpdateRankedState<'info> {
         bump = ranked_config.bump,
     )]
     pub ranked_config: Account<'info, RankedConfig>,
-    #[account(mut, address = ranked_config.reward_mint)]
-    pub reward_mint: Account<'info, Mint>,
-    /// CHECK: PDA signer for mint authority.
-    #[account(
-        seeds = [b"mint-authority"],
-        bump = ranked_config.mint_authority_bump,
-    )]
-    pub mint_authority: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        constraint = player_token_account.owner == wallet_address @ GuessrError::InvalidTokenOwner,
-        constraint = player_token_account.mint == reward_mint.key() @ GuessrError::InvalidTokenMint,
-    )]
-    pub player_token_account: Account<'info, TokenAccount>,
-    #[account(
-        mut,
-        address = ranked_config.treasury_token_account,
-        constraint = treasury_token_account.mint == reward_mint.key() @ GuessrError::InvalidTreasuryMint,
-    )]
-    pub treasury_token_account: Account<'info, TokenAccount>,
-    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 

@@ -215,6 +215,14 @@ pub mod guessr_multiplayer_program {
         instructions::reward::claim_reward_handler(ctx)
     }
 
+    pub fn mint_ranked_reward(ctx: Context<MintRankedReward>) -> Result<()> {
+        instructions::magic_actions::mint_ranked_reward_handler(ctx)
+    }
+
+    pub fn mint_duel_rewards(ctx: Context<MintDuelRewards>) -> Result<()> {
+        instructions::magic_actions::mint_duel_rewards_handler(ctx)
+    }
+
     pub fn delegate_guessr_state(
         ctx: Context<DelegateGuessrState>,
         args: DelegateGuessrStateArgs,
@@ -226,5 +234,17 @@ pub mod guessr_multiplayer_program {
         ctx: Context<'_, '_, '_, 'info, CommitGuessrState<'info>>,
     ) -> Result<()> {
         instructions::commit_guessr_state_handler(ctx)
+    }
+
+    pub fn commit_ranked_with_reward(
+        ctx: Context<CommitRankedWithReward>,
+    ) -> Result<()> {
+        instructions::commit_ranked_with_reward_handler(ctx)
+    }
+
+    pub fn commit_duel_with_rewards(
+        ctx: Context<CommitDuelWithRewards>,
+    ) -> Result<()> {
+        instructions::commit_duel_with_rewards_handler(ctx)
     }
 }

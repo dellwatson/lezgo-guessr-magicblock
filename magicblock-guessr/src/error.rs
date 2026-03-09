@@ -42,6 +42,8 @@ pub enum GuessrError {
     PlayerNotInRoom,
     #[msg("Duel room is already settled")]
     DuelAlreadySettled,
+    #[msg("Duel room must be settled before rewards can be minted")]
+    DuelNotSettled,
     #[msg("Winner is not a participant in this room")]
     InvalidWinner,
     #[msg("Reward mint account does not match provided reward mint")]

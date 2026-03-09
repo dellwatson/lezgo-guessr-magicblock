@@ -1,12 +1,21 @@
 use anchor_lang::prelude::*;
+use anchor_lang::InstructionData;
+use anchor_spl::associated_token::get_associated_token_address;
+use anchor_spl::token::ID as TOKEN_PROGRAM_ID;
 use ephemeral_rollups_sdk::anchor::{commit, delegate};
 use ephemeral_rollups_sdk::cpi::DelegateConfig;
-use ephemeral_rollups_sdk::ephem::commit_accounts;
+use ephemeral_rollups_sdk::ephem::{
+    commit_accounts, CallHandler, CommitType, MagicAction, MagicInstructionBuilder,
+};
+use ephemeral_rollups_sdk::{ActionArgs, ShortAccountMeta};
 use std::collections::HashSet;
 
 use crate::constants::{MATCH_MODE_DUEL, MATCH_MODE_RANKED_SOLO};
 use crate::error::GuessrError;
-use crate::state::{LeaderboardState, LobbyState, RankedConfig};
+use crate::state::{
+    DuelRoom, LeaderboardState, LobbyState, PlayerProfile, PlayerRewardStats, PlayerStatus,
+    RankedConfig, RankedRoom,
+};
 
 pub const DELEGATE_TARGET_LOBBY_STATE: u8 = 0;
 pub const DELEGATE_TARGET_RANKED_CONFIG: u8 = 1;
@@ -35,41 +44,46 @@ pub fn delegate_guessr_state_handler(
     ctx: Context<DelegateGuessrState>,
     args: DelegateGuessrStateArgs,
 ) -> Result<()> {
+    let validator = ctx.remaining_accounts.first().map(|acc| *acc.key);
+    let config = DelegateConfig {
+        validator,
+        ..Default::default()
+    };
     match args.target {
         DELEGATE_TARGET_LOBBY_STATE => ctx.accounts.delegate_pda(
             &ctx.accounts.payer,
             &[b"lobby-state"],
-            DelegateConfig::default(),
+            config,
         )?,
         DELEGATE_TARGET_RANKED_CONFIG => ctx.accounts.delegate_pda(
             &ctx.accounts.payer,
             &[b"ranked-config"],
-            DelegateConfig::default(),
+            config,
         )?,
         DELEGATE_TARGET_PLAYER_STATUS => ctx.accounts.delegate_pda(
             &ctx.accounts.payer,
             &[b"player-status", args.player.as_ref()],
-            DelegateConfig::default(),
+            config,
         )?,
         DELEGATE_TARGET_PLAYER_LIVE_STATE => ctx.accounts.delegate_pda(
             &ctx.accounts.payer,
             &[b"player-live-state", args.player.as_ref()],
-            DelegateConfig::default(),
+            config,
         )?,
         DELEGATE_TARGET_PLAYER_PROFILE => ctx.accounts.delegate_pda(
             &ctx.accounts.payer,
             &[b"player-profile", args.player.as_ref()],
-            DelegateConfig::default(),
+            config,
         )?,
         DELEGATE_TARGET_PLAYER_REWARDS => ctx.accounts.delegate_pda(
             &ctx.accounts.payer,
             &[b"player-rewards", args.player.as_ref()],
-            DelegateConfig::default(),
+            config,
         )?,
         DELEGATE_TARGET_DUEL_ROOM => ctx.accounts.delegate_pda(
             &ctx.accounts.payer,
             &[b"duel-room", args.room_or_match_id.as_ref()],
-            DelegateConfig::default(),
+            config,
         )?,
         DELEGATE_TARGET_RANKED_ROOM => ctx.accounts.delegate_pda(
             &ctx.accounts.payer,
@@ -78,7 +92,7 @@ pub fn delegate_guessr_state_handler(
                 args.player.as_ref(),
                 args.room_or_match_id.as_ref(),
             ],
-            DelegateConfig::default(),
+            config,
         )?,
         DELEGATE_TARGET_REWARD_CLAIM => {
             require!(
@@ -94,13 +108,13 @@ pub fn delegate_guessr_state_handler(
                     args.room_or_match_id.as_ref(),
                     &mode_seed,
                 ],
-                DelegateConfig::default(),
+                config,
             )?
         }
         DELEGATE_TARGET_LEADERBOARD => ctx.accounts.delegate_pda(
             &ctx.accounts.payer,
             &[b"leaderboard"],
-            DelegateConfig::default(),
+            config,
         )?,
         _ => return err!(GuessrError::InvalidDelegationTarget),
     }
@@ -142,6 +156,166 @@ pub fn commit_guessr_state_handler<'info>(
     Ok(())
 }
 
+pub fn commit_ranked_with_reward_handler(
+    ctx: Context<CommitRankedWithReward>,
+) -> Result<()> {
+    let reward_mint = ctx.accounts.ranked_config.reward_mint;
+    let player = ctx.accounts.ranked_room.player;
+    let player_token_account = get_associated_token_address(&player, &reward_mint);
+    let (mint_authority, _) =
+        Pubkey::find_program_address(&[b"mint-authority"], ctx.program_id);
+
+    let instruction_data =
+        InstructionData::data(&crate::instruction::MintRankedReward {});
+    let action_args = ActionArgs::new(instruction_data);
+    let action_accounts = vec![
+        ShortAccountMeta {
+            pubkey: ctx.accounts.ranked_config.key(),
+            is_writable: false,
+        },
+        ShortAccountMeta {
+            pubkey: ctx.accounts.ranked_room.key(),
+            is_writable: false,
+        },
+        ShortAccountMeta {
+            pubkey: reward_mint,
+            is_writable: true,
+        },
+        ShortAccountMeta {
+            pubkey: mint_authority,
+            is_writable: false,
+        },
+        ShortAccountMeta {
+            pubkey: player_token_account,
+            is_writable: true,
+        },
+        ShortAccountMeta {
+            pubkey: TOKEN_PROGRAM_ID,
+            is_writable: false,
+        },
+    ];
+    let action = CallHandler {
+        destination_program: crate::ID,
+        accounts: action_accounts,
+        args: action_args,
+        escrow_authority: ctx.accounts.payer.to_account_info(),
+        compute_units: 200_000,
+    };
+
+    let mut commit_targets = Vec::new();
+    let mut seen = HashSet::new();
+    for account in [
+        ctx.accounts.lobby_state.to_account_info(),
+        ctx.accounts.ranked_config.to_account_info(),
+        ctx.accounts.leaderboard.to_account_info(),
+        ctx.accounts.player_status.to_account_info(),
+        ctx.accounts.player_profile.to_account_info(),
+        ctx.accounts.player_rewards.to_account_info(),
+        ctx.accounts.ranked_room.to_account_info(),
+    ] {
+        if seen.insert(*account.key) {
+            commit_targets.push(account);
+        }
+    }
+
+    let magic_action = MagicInstructionBuilder {
+        payer: ctx.accounts.payer.to_account_info(),
+        magic_context: ctx.accounts.magic_context.to_account_info(),
+        magic_program: ctx.accounts.magic_program.to_account_info(),
+        magic_action: MagicAction::Commit(CommitType::WithHandler {
+            commited_accounts: commit_targets,
+            call_handlers: vec![action],
+        }),
+    };
+
+    magic_action.build_and_invoke()?;
+    Ok(())
+}
+
+pub fn commit_duel_with_rewards_handler(
+    ctx: Context<CommitDuelWithRewards>,
+) -> Result<()> {
+    let reward_mint = ctx.accounts.ranked_config.reward_mint;
+    let host = ctx.accounts.duel_room.host;
+    let challenger = ctx.accounts.duel_room.challenger;
+    let host_token_account = get_associated_token_address(&host, &reward_mint);
+    let challenger_token_account = get_associated_token_address(&challenger, &reward_mint);
+    let (mint_authority, _) =
+        Pubkey::find_program_address(&[b"mint-authority"], ctx.program_id);
+
+    let instruction_data =
+        InstructionData::data(&crate::instruction::MintDuelRewards {});
+    let action_args = ActionArgs::new(instruction_data);
+    let action_accounts = vec![
+        ShortAccountMeta {
+            pubkey: ctx.accounts.ranked_config.key(),
+            is_writable: false,
+        },
+        ShortAccountMeta {
+            pubkey: ctx.accounts.duel_room.key(),
+            is_writable: false,
+        },
+        ShortAccountMeta {
+            pubkey: reward_mint,
+            is_writable: true,
+        },
+        ShortAccountMeta {
+            pubkey: mint_authority,
+            is_writable: false,
+        },
+        ShortAccountMeta {
+            pubkey: host_token_account,
+            is_writable: true,
+        },
+        ShortAccountMeta {
+            pubkey: challenger_token_account,
+            is_writable: true,
+        },
+        ShortAccountMeta {
+            pubkey: TOKEN_PROGRAM_ID,
+            is_writable: false,
+        },
+    ];
+    let action = CallHandler {
+        destination_program: crate::ID,
+        accounts: action_accounts,
+        args: action_args,
+        escrow_authority: ctx.accounts.payer.to_account_info(),
+        compute_units: 200_000,
+    };
+
+    let mut commit_targets = Vec::new();
+    let mut seen = HashSet::new();
+    for account in [
+        ctx.accounts.lobby_state.to_account_info(),
+        ctx.accounts.ranked_config.to_account_info(),
+        ctx.accounts.leaderboard.to_account_info(),
+        ctx.accounts.player_status.to_account_info(),
+        ctx.accounts.duel_room.to_account_info(),
+        ctx.accounts.host_profile.to_account_info(),
+        ctx.accounts.challenger_profile.to_account_info(),
+        ctx.accounts.host_rewards.to_account_info(),
+        ctx.accounts.challenger_rewards.to_account_info(),
+    ] {
+        if seen.insert(*account.key) {
+            commit_targets.push(account);
+        }
+    }
+
+    let magic_action = MagicInstructionBuilder {
+        payer: ctx.accounts.payer.to_account_info(),
+        magic_context: ctx.accounts.magic_context.to_account_info(),
+        magic_program: ctx.accounts.magic_program.to_account_info(),
+        magic_action: MagicAction::Commit(CommitType::WithHandler {
+            commited_accounts: commit_targets,
+            call_handlers: vec![action],
+        }),
+    };
+
+    magic_action.build_and_invoke()?;
+    Ok(())
+}
+
 #[delegate]
 #[derive(Accounts)]
 pub struct DelegateGuessrState<'info> {
@@ -175,4 +349,74 @@ pub struct CommitGuessrState<'info> {
         bump = leaderboard.bump,
     )]
     pub leaderboard: Account<'info, LeaderboardState>,
+}
+
+#[commit]
+#[derive(Accounts)]
+pub struct CommitRankedWithReward<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"lobby-state"],
+        bump = lobby_state.bump,
+    )]
+    pub lobby_state: Account<'info, LobbyState>,
+    #[account(
+        mut,
+        seeds = [b"ranked-config"],
+        bump = ranked_config.bump,
+    )]
+    pub ranked_config: Account<'info, RankedConfig>,
+    #[account(
+        mut,
+        seeds = [b"leaderboard"],
+        bump = leaderboard.bump,
+    )]
+    pub leaderboard: Account<'info, LeaderboardState>,
+    #[account(mut)]
+    pub player_status: Account<'info, PlayerStatus>,
+    #[account(mut)]
+    pub player_profile: Account<'info, PlayerProfile>,
+    #[account(mut)]
+    pub player_rewards: Account<'info, PlayerRewardStats>,
+    #[account(mut)]
+    pub ranked_room: Account<'info, RankedRoom>,
+}
+
+#[commit]
+#[derive(Accounts)]
+pub struct CommitDuelWithRewards<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"lobby-state"],
+        bump = lobby_state.bump,
+    )]
+    pub lobby_state: Account<'info, LobbyState>,
+    #[account(
+        mut,
+        seeds = [b"ranked-config"],
+        bump = ranked_config.bump,
+    )]
+    pub ranked_config: Account<'info, RankedConfig>,
+    #[account(
+        mut,
+        seeds = [b"leaderboard"],
+        bump = leaderboard.bump,
+    )]
+    pub leaderboard: Account<'info, LeaderboardState>,
+    #[account(mut)]
+    pub player_status: Account<'info, PlayerStatus>,
+    #[account(mut)]
+    pub duel_room: Account<'info, DuelRoom>,
+    #[account(mut)]
+    pub host_profile: Account<'info, PlayerProfile>,
+    #[account(mut)]
+    pub challenger_profile: Account<'info, PlayerProfile>,
+    #[account(mut)]
+    pub host_rewards: Account<'info, PlayerRewardStats>,
+    #[account(mut)]
+    pub challenger_rewards: Account<'info, PlayerRewardStats>,
 }

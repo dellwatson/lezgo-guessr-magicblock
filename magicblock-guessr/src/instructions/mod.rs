@@ -1,5 +1,6 @@
 pub mod duel;
 pub mod er;
+pub mod magic_actions;
 pub mod leaderboard;
 pub mod lobby;
 pub mod player_state;
@@ -39,6 +40,7 @@ pub fn ensure_player_authority(player_status: &PlayerStatus, authority: Pubkey) 
 
 pub use duel::*;
 pub use er::*;
+pub use magic_actions::*;
 pub use leaderboard::*;
 pub use lobby::*;
 pub use player_state::*;

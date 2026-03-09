@@ -74,7 +74,7 @@ pub struct InitializeSystem<'info> {
         bump
     )]
     pub leaderboard: Account<'info, LeaderboardState>,
-    pub reward_mint: Account<'info, Mint>,
+    pub reward_mint: UncheckedAccount<'info>,
     #[account(
         mut,
         constraint = treasury_token_account.mint == reward_mint.key() @ GuessrError::InvalidTreasuryMint,

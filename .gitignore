@@ -5,3 +5,7 @@ target
 # local build artifacts and program keypairs
 artifacts/
 keys/
+
+.env
+*/.env
+**/.env

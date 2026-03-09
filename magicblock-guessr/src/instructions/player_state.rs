@@ -1,10 +1,9 @@
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
 
 use crate::constants::PLAYER_LIVE_STATE_SPACE;
 use crate::error::GuessrError;
 use crate::instructions::{ensure_player_authority, ensure_wallet_matches_status};
-use crate::state::{DuelRoom, PlayerLiveState, PlayerStatus, RankedConfig};
+use crate::state::{DuelRoom, PlayerLiveState, PlayerStatus};
 
 pub fn update_player_state_handler(
     ctx: Context<UpdatePlayerState>,
@@ -73,7 +72,6 @@ pub fn update_duel_state_handler(
     let player_status = &mut ctx.accounts.player_status;
     let live_state = &mut ctx.accounts.player_live_state;
     let duel_room = &mut ctx.accounts.duel_room;
-    let config = &ctx.accounts.ranked_config;
     let authority = ctx.accounts.authority.key();
     let player_key = player_status.player;
     let now = Clock::get()?.unix_timestamp;
@@ -124,44 +122,7 @@ pub fn update_duel_state_handler(
         0_u64
     };
 
-    if reward_amount > 0 {
-        let signer_seeds: &[&[u8]] = &[b"mint-authority", &[config.mint_authority_bump]];
-        let cpi_accounts = MintTo {
-            mint: ctx.accounts.reward_mint.to_account_info(),
-            to: ctx.accounts.player_token_account.to_account_info(),
-            authority: ctx.accounts.mint_authority.to_account_info(),
-        };
-        token::mint_to(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                cpi_accounts,
-                &[signer_seeds],
-            ),
-            reward_amount,
-        )?;
-    }
-
-    let mut actual_penalty = 0_u64;
-    if penalty_amount > 0 {
-        // Session-key updates do not control the wallet-owned SPL account authority.
-        // Penalty transfer only executes when the wallet itself is the signer.
-        if authority == wallet_address {
-            let player_balance = ctx.accounts.player_token_account.amount;
-            let transfer_amount = penalty_amount.min(player_balance);
-            if transfer_amount > 0 {
-                let cpi_accounts = Transfer {
-                    from: ctx.accounts.player_token_account.to_account_info(),
-                    to: ctx.accounts.treasury_token_account.to_account_info(),
-                    authority: ctx.accounts.authority.to_account_info(),
-                };
-                token::transfer(
-                    CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
-                    transfer_amount,
-                )?;
-                actual_penalty = transfer_amount;
-            }
-        }
-    }
+    let actual_penalty = penalty_amount;
 
     if duel_room.host == player_key {
         duel_room.host_score = total_score;
@@ -259,31 +220,5 @@ pub struct UpdateDuelState<'info> {
         bump = duel_room.bump
     )]
     pub duel_room: Account<'info, DuelRoom>,
-    #[account(
-        seeds = [b"ranked-config"],
-        bump = ranked_config.bump
-    )]
-    pub ranked_config: Account<'info, RankedConfig>,
-    #[account(mut, address = ranked_config.reward_mint)]
-    pub reward_mint: Account<'info, Mint>,
-    /// CHECK: PDA signer for mint authority.
-    #[account(
-        seeds = [b"mint-authority"],
-        bump = ranked_config.mint_authority_bump
-    )]
-    pub mint_authority: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        constraint = player_token_account.owner == wallet_address @ GuessrError::InvalidTokenOwner,
-        constraint = player_token_account.mint == reward_mint.key() @ GuessrError::InvalidTokenMint,
-    )]
-    pub player_token_account: Account<'info, TokenAccount>,
-    #[account(
-        mut,
-        address = ranked_config.treasury_token_account,
-        constraint = treasury_token_account.mint == reward_mint.key() @ GuessrError::InvalidTreasuryMint,
-    )]
-    pub treasury_token_account: Account<'info, TokenAccount>,
-    pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }

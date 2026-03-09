@@ -6,7 +6,7 @@ use std::collections::HashSet;
 
 use crate::constants::{MATCH_MODE_DUEL, MATCH_MODE_RANKED_SOLO};
 use crate::error::GuessrError;
-use crate::state::{LobbyState, RankedConfig};
+use crate::state::{LeaderboardState, LobbyState, RankedConfig};
 
 pub const DELEGATE_TARGET_LOBBY_STATE: u8 = 0;
 pub const DELEGATE_TARGET_RANKED_CONFIG: u8 = 1;
@@ -16,6 +16,8 @@ pub const DELEGATE_TARGET_PLAYER_PROFILE: u8 = 4;
 pub const DELEGATE_TARGET_DUEL_ROOM: u8 = 5;
 pub const DELEGATE_TARGET_RANKED_ROOM: u8 = 6;
 pub const DELEGATE_TARGET_REWARD_CLAIM: u8 = 7;
+pub const DELEGATE_TARGET_LEADERBOARD: u8 = 8;
+pub const DELEGATE_TARGET_PLAYER_REWARDS: u8 = 9;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default)]
 pub struct DelegateGuessrStateArgs {
@@ -59,6 +61,11 @@ pub fn delegate_guessr_state_handler(
             &[b"player-profile", args.player.as_ref()],
             DelegateConfig::default(),
         )?,
+        DELEGATE_TARGET_PLAYER_REWARDS => ctx.accounts.delegate_pda(
+            &ctx.accounts.payer,
+            &[b"player-rewards", args.player.as_ref()],
+            DelegateConfig::default(),
+        )?,
         DELEGATE_TARGET_DUEL_ROOM => ctx.accounts.delegate_pda(
             &ctx.accounts.payer,
             &[b"duel-room", args.room_or_match_id.as_ref()],
@@ -90,6 +97,11 @@ pub fn delegate_guessr_state_handler(
                 DelegateConfig::default(),
             )?
         }
+        DELEGATE_TARGET_LEADERBOARD => ctx.accounts.delegate_pda(
+            &ctx.accounts.payer,
+            &[b"leaderboard"],
+            DelegateConfig::default(),
+        )?,
         _ => return err!(GuessrError::InvalidDelegationTarget),
     }
 
@@ -103,9 +115,14 @@ pub fn commit_guessr_state_handler<'info>(
     // This allows batching many commits with one instruction when transaction size permits.
     let lobby_state_info = ctx.accounts.lobby_state.to_account_info();
     let ranked_config_info = ctx.accounts.ranked_config.to_account_info();
+    let leaderboard_info = ctx.accounts.leaderboard.to_account_info();
 
-    let mut commit_targets = vec![&lobby_state_info, &ranked_config_info];
-    let mut seen = HashSet::from([*lobby_state_info.key, *ranked_config_info.key]);
+    let mut commit_targets = vec![&lobby_state_info, &ranked_config_info, &leaderboard_info];
+    let mut seen = HashSet::from([
+        *lobby_state_info.key,
+        *ranked_config_info.key,
+        *leaderboard_info.key,
+    ]);
 
     for account in ctx.remaining_accounts.iter() {
         if !account.is_writable {
@@ -152,4 +169,10 @@ pub struct CommitGuessrState<'info> {
         bump = ranked_config.bump,
     )]
     pub ranked_config: Account<'info, RankedConfig>,
+    #[account(
+        mut,
+        seeds = [b"leaderboard"],
+        bump = leaderboard.bump,
+    )]
+    pub leaderboard: Account<'info, LeaderboardState>,
 }

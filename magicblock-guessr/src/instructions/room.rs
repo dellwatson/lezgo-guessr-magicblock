@@ -2,13 +2,20 @@ use anchor_lang::prelude::*;
 
 use crate::constants::DUEL_ROOM_SPACE;
 use crate::error::GuessrError;
+use crate::instructions::{ensure_player_authority, ensure_wallet_matches_status};
 use crate::state::{DuelRoom, PlayerStatus};
 
 // match room
-pub fn enter_room_handler(ctx: Context<EnterRoom>, room_id: [u8; 32]) -> Result<()> {
+pub fn enter_room_handler(
+    ctx: Context<EnterRoom>,
+    wallet_address: Pubkey,
+    room_id: [u8; 32],
+) -> Result<()> {
     let player_status = &mut ctx.accounts.player_status;
     let duel_room = &mut ctx.accounts.duel_room;
-    let player = ctx.accounts.player.key();
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+    ensure_player_authority(player_status, ctx.accounts.authority.key())?;
+    let player = player_status.player;
     let now = Clock::get()?.unix_timestamp;
 
     require!(player_status.is_online, GuessrError::PlayerOffline);
@@ -54,27 +61,29 @@ pub fn enter_room_handler(ctx: Context<EnterRoom>, room_id: [u8; 32]) -> Result<
     Ok(())
 }
 
-pub fn clear_room_handler(ctx: Context<ClearRoom>) -> Result<()> {
+pub fn clear_room_handler(ctx: Context<ClearRoom>, wallet_address: Pubkey) -> Result<()> {
     let player_status = &mut ctx.accounts.player_status;
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+    ensure_player_authority(player_status, ctx.accounts.authority.key())?;
     player_status.active_room = [0u8; 32];
     Ok(())
 }
 
 #[derive(Accounts)]
-#[instruction(room_id: [u8; 32])]
+#[instruction(wallet_address: Pubkey, room_id: [u8; 32])]
 pub struct EnterRoom<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump = player_status.bump,
-        constraint = player_status.player == player.key() @ GuessrError::Unauthorized
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized
     )]
     pub player_status: Account<'info, PlayerStatus>,
     #[account(
         init_if_needed,
-        payer = player,
+        payer = authority,
         space = DUEL_ROOM_SPACE,
         seeds = [b"duel-room", room_id.as_ref()],
         bump
@@ -84,14 +93,15 @@ pub struct EnterRoom<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(wallet_address: Pubkey)]
 pub struct ClearRoom<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump = player_status.bump,
-        constraint = player_status.player == player.key() @ GuessrError::Unauthorized
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized
     )]
     pub player_status: Account<'info, PlayerStatus>,
 }

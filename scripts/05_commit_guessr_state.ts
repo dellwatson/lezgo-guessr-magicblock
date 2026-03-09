@@ -17,9 +17,11 @@ const MAGIC_CONTEXT_ID = new PublicKey('MagicContext1111111111111111111111111111
 
 const LOBBY_STATE_SEED = new TextEncoder().encode('lobby-state');
 const RANKED_CONFIG_SEED = new TextEncoder().encode('ranked-config');
+const LEADERBOARD_SEED = new TextEncoder().encode('leaderboard');
 const PLAYER_STATUS_SEED = new TextEncoder().encode('player-status');
 const PLAYER_LIVE_STATE_SEED = new TextEncoder().encode('player-live-state');
 const PLAYER_PROFILE_SEED = new TextEncoder().encode('player-profile');
+const PLAYER_REWARDS_SEED = new TextEncoder().encode('player-rewards');
 const ROOM_ID_SEED = new TextEncoder().encode('room-id');
 const DUEL_ROOM_SEED = new TextEncoder().encode('duel-room');
 const RANKED_ROOM_SEED = new TextEncoder().encode('ranked-room');
@@ -149,15 +151,17 @@ function parseRoomIdBytes(roomIdOrAddress: string, programId: PublicKey) {
 
 function buildCommitInstruction(params: {
   programId: PublicKey;
-  payer: PublicKey;
+  payer: ReturnType<typeof loadKeypair>;
   lobbyStatePda: PublicKey;
   rankedConfigPda: PublicKey;
+  leaderboardPda: PublicKey;
   extraTargets: CommitSpec[];
 }) {
   const keys = [
-    { pubkey: params.payer, isSigner: true, isWritable: true },
+    { pubkey: params.payer.publicKey, isSigner: true, isWritable: true },
     { pubkey: params.lobbyStatePda, isSigner: false, isWritable: true },
     { pubkey: params.rankedConfigPda, isSigner: false, isWritable: true },
+    { pubkey: params.leaderboardPda, isSigner: false, isWritable: true },
     { pubkey: MAGIC_PROGRAM_ID, isSigner: false, isWritable: false },
     { pubkey: MAGIC_CONTEXT_ID, isSigner: false, isWritable: true },
     ...params.extraTargets.map(target => ({
@@ -197,6 +201,7 @@ async function sendCommitWithFallback(params: {
   programId: PublicKey;
   lobbyStatePda: PublicKey;
   rankedConfigPda: PublicKey;
+  leaderboardPda: PublicKey;
   extraTargets: CommitSpec[];
 }): Promise<{ signatures: string[]; usedSingleTx: boolean }> {
   try {
@@ -222,6 +227,7 @@ async function sendCommitChunked(params: {
   programId: PublicKey;
   lobbyStatePda: PublicKey;
   rankedConfigPda: PublicKey;
+  leaderboardPda: PublicKey;
   extraTargets: CommitSpec[];
 }): Promise<string[]> {
   try {
@@ -254,14 +260,19 @@ async function main() {
 
   const [lobbyStatePda] = PublicKey.findProgramAddressSync([LOBBY_STATE_SEED], programId);
   const [rankedConfigPda] = PublicKey.findProgramAddressSync([RANKED_CONFIG_SEED], programId);
+  const [leaderboardPda] = PublicKey.findProgramAddressSync([LEADERBOARD_SEED], programId);
 
   const lobbyInfo = await connection.getAccountInfo(lobbyStatePda, 'confirmed');
   const rankedInfo = await connection.getAccountInfo(rankedConfigPda, 'confirmed');
+  const leaderboardInfo = await connection.getAccountInfo(leaderboardPda, 'confirmed');
   if (!lobbyInfo) {
     throw new Error(`Required PDA not found: lobby-state (${lobbyStatePda.toBase58()})`);
   }
   if (!rankedInfo) {
     throw new Error(`Required PDA not found: ranked-config (${rankedConfigPda.toBase58()})`);
+  }
+  if (!leaderboardInfo) {
+    throw new Error(`Required PDA not found: leaderboard (${leaderboardPda.toBase58()})`);
   }
 
   for (const player of players) {
@@ -277,6 +288,10 @@ async function main() {
       [PLAYER_PROFILE_SEED, player.toBytes()],
       programId
     );
+    const [playerRewardsPda] = PublicKey.findProgramAddressSync(
+      [PLAYER_REWARDS_SEED, player.toBytes()],
+      programId
+    );
 
     addSpec(specs, {
       label: `player-status:${player.toBase58()}`,
@@ -290,6 +305,10 @@ async function main() {
       label: `player-profile:${player.toBase58()}`,
       pda: playerProfilePda,
     });
+    addSpec(specs, {
+      label: `player-rewards:${player.toBase58()}`,
+      pda: playerRewardsPda,
+    });
   }
 
   const duelRoomIds = [
@@ -300,7 +319,10 @@ async function main() {
 
   for (const roomIdOrAddress of duelRoomIds) {
     const roomIdBytes = parseRoomIdBytes(roomIdOrAddress, programId);
-    const [duelRoomPda] = PublicKey.findProgramAddressSync([DUEL_ROOM_SEED, roomIdBytes], programId);
+    const [duelRoomPda] = PublicKey.findProgramAddressSync(
+      [DUEL_ROOM_SEED, roomIdBytes],
+      programId
+    );
     addSpec(specs, {
       label: `duel-room:${roomIdOrAddress}`,
       pda: duelRoomPda,
@@ -361,11 +383,12 @@ async function main() {
     programId,
     lobbyStatePda,
     rankedConfigPda,
+    leaderboardPda,
     extraTargets,
   });
 
   console.log('Program:', programId.toBase58());
-  console.log('Committed global PDAs: 2');
+  console.log('Committed global PDAs: 3');
   console.log('Committed additional PDAs:', extraTargets.length);
   console.log('Skipped missing PDAs:', skipped.length);
   if (result.usedSingleTx) {
@@ -379,7 +402,7 @@ async function main() {
 
   writeReport(
     '05_commit_guessr_state.log',
-    `program=${programId.toBase58()} committedGlobal=2 committedExtra=${extraTargets.length} skipped=${skipped.length} singleTx=${result.usedSingleTx} signatures=${result.signatures.join(',')}`
+    `program=${programId.toBase58()} committedGlobal=3 committedExtra=${extraTargets.length} skipped=${skipped.length} singleTx=${result.usedSingleTx} signatures=${result.signatures.join(',')}`
   );
 }
 

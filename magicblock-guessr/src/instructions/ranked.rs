@@ -3,13 +3,16 @@ use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
 
 use crate::constants::{
     ACTION_GUESS_SUBMIT, ACTION_HINT_OPEN, ACTION_MARK_MOVE, MAX_ACCURACY_BPS,
-    PLAYER_LIVE_STATE_SPACE, PLAYER_PROFILE_SPACE, RANKED_ROOM_SPACE,
+    PLAYER_LIVE_STATE_SPACE, PLAYER_PROFILE_SPACE, PLAYER_REWARD_STATS_SPACE, RANKED_ROOM_SPACE,
 };
 use crate::error::GuessrError;
-use crate::instructions::profile::{
-    apply_profile_match_result, ProfileMatchMode, ProfileOutcome,
+use crate::instructions::leaderboard::update_leaderboards;
+use crate::instructions::profile::{apply_profile_match_result, ProfileMatchMode, ProfileOutcome};
+use crate::instructions::{ensure_player_authority, ensure_wallet_matches_status};
+use crate::state::{
+    LeaderboardState, PlayerLiveState, PlayerProfile, PlayerRewardStats, PlayerStatus, RankedConfig,
+    RankedRoom,
 };
-use crate::state::{PlayerLiveState, PlayerProfile, PlayerStatus, RankedConfig, RankedRoom};
 
 pub fn set_reward_mint_handler(ctx: Context<SetRewardMint>, reward_mint: Pubkey) -> Result<()> {
     let config = &mut ctx.accounts.ranked_config;
@@ -20,11 +23,15 @@ pub fn set_reward_mint_handler(ctx: Context<SetRewardMint>, reward_mint: Pubkey)
 
 pub fn open_ranked_room_handler(
     ctx: Context<OpenRankedRoom>,
+    wallet_address: Pubkey,
     challenge_hash: [u8; 32],
 ) -> Result<()> {
     let ranked_room = &mut ctx.accounts.ranked_room;
     let player_status = &mut ctx.accounts.player_status;
-    ranked_room.player = ctx.accounts.player.key();
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+    ensure_player_authority(player_status, ctx.accounts.authority.key())?;
+
+    ranked_room.player = player_status.player;
     ranked_room.challenge_hash = challenge_hash;
     ranked_room.score = 0;
     ranked_room.total_earned = 0;
@@ -52,6 +59,7 @@ pub fn open_ranked_room_handler(
 #[allow(clippy::too_many_arguments)]
 pub fn update_ranked_state_handler(
     ctx: Context<UpdateRankedState>,
+    wallet_address: Pubkey,
     round_index: u16,
     hp_after: u16,
     distance_km: u32,
@@ -65,8 +73,11 @@ pub fn update_ranked_state_handler(
     let player_status = &mut ctx.accounts.player_status;
     let live_state = &mut ctx.accounts.player_live_state;
     let config = &ctx.accounts.ranked_config;
+    let authority = ctx.accounts.authority.key();
     let now = Clock::get()?.unix_timestamp;
 
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+    ensure_player_authority(player_status, authority)?;
     require!(!ranked_room.is_settled, GuessrError::RoomAlreadySettled);
     require!(player_status.is_online, GuessrError::PlayerOffline);
     require!(
@@ -165,19 +176,23 @@ pub fn update_ranked_state_handler(
 
     let mut actual_penalty = 0_u64;
     if penalty_amount > 0 {
-        let player_balance = ctx.accounts.player_token_account.amount;
-        let transfer_amount = penalty_amount.min(player_balance);
-        if transfer_amount > 0 {
-            let cpi_accounts = Transfer {
-                from: ctx.accounts.player_token_account.to_account_info(),
-                to: ctx.accounts.treasury_token_account.to_account_info(),
-                authority: ctx.accounts.player.to_account_info(),
-            };
-            token::transfer(
-                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
-                transfer_amount,
-            )?;
-            actual_penalty = transfer_amount;
+        // Session-key updates do not own the wallet SPL authority.
+        // Penalty transfer only executes when the wallet is the signer.
+        if authority == wallet_address {
+            let player_balance = ctx.accounts.player_token_account.amount;
+            let transfer_amount = penalty_amount.min(player_balance);
+            if transfer_amount > 0 {
+                let cpi_accounts = Transfer {
+                    from: ctx.accounts.player_token_account.to_account_info(),
+                    to: ctx.accounts.treasury_token_account.to_account_info(),
+                    authority: ctx.accounts.authority.to_account_info(),
+                };
+                token::transfer(
+                    CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                    transfer_amount,
+                )?;
+                actual_penalty = transfer_amount;
+            }
         }
     }
 
@@ -203,9 +218,9 @@ pub fn update_ranked_state_handler(
     ranked_room.last_action_ts = now;
     player_status.last_heartbeat_ts = now;
 
-    live_state.player = ctx.accounts.player.key();
-    live_state.wallet_address = ctx.accounts.player.key();
-    live_state.session_address = Pubkey::default();
+    live_state.player = player_status.player;
+    live_state.wallet_address = player_status.player;
+    live_state.session_address = authority;
     live_state.room_id = ranked_room.challenge_hash;
     live_state.round_index = round_index;
     live_state.hp = hp_after;
@@ -221,11 +236,19 @@ pub fn update_ranked_state_handler(
     Ok(())
 }
 
-pub fn settle_ranked_room_handler(ctx: Context<SettleRankedRoom>, score: u64) -> Result<()> {
+pub fn settle_ranked_room_handler(
+    ctx: Context<SettleRankedRoom>,
+    wallet_address: Pubkey,
+    score: u64,
+) -> Result<()> {
     let ranked_room = &mut ctx.accounts.ranked_room;
+    let player_status = &ctx.accounts.player_status;
     let profile = &mut ctx.accounts.player_profile;
-    let player = ctx.accounts.player.key();
+    let player = ranked_room.player;
     let now = Clock::get()?.unix_timestamp;
+
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+    ensure_player_authority(player_status, ctx.accounts.authority.key())?;
 
     require!(!ranked_room.is_settled, GuessrError::RoomAlreadySettled);
 
@@ -255,7 +278,11 @@ pub fn settle_ranked_room_handler(ctx: Context<SettleRankedRoom>, score: u64) ->
     let xp_gained = 20_u64
         .checked_add(score.checked_div(20).ok_or(GuessrError::Overflow)?)
         .ok_or(GuessrError::Overflow)?
-        .checked_add((ranked_room.action_count as u64).checked_div(2).ok_or(GuessrError::Overflow)?)
+        .checked_add(
+            (ranked_room.action_count as u64)
+                .checked_div(2)
+                .ok_or(GuessrError::Overflow)?,
+        )
         .ok_or(GuessrError::Overflow)?;
 
     let outcome = if score > 0 && earning_delta >= 0 {
@@ -276,10 +303,27 @@ pub fn settle_ranked_room_handler(ctx: Context<SettleRankedRoom>, score: u64) ->
         now,
     )?;
 
+    let rewards = &mut ctx.accounts.player_rewards;
+    if rewards.player == Pubkey::default() {
+        rewards.touch(player, ctx.bumps.player_rewards, now);
+    }
+    rewards.total_earned = rewards
+        .total_earned
+        .checked_add(ranked_room.total_earned)
+        .ok_or(GuessrError::Overflow)?;
+    rewards.last_update_ts = now;
+
+    update_leaderboards(&mut ctx.accounts.leaderboard, profile, rewards, now);
+
     Ok(())
 }
 
-pub fn close_ranked_room_handler(ctx: Context<CloseRankedRoom>) -> Result<()> {
+pub fn close_ranked_room_handler(
+    ctx: Context<CloseRankedRoom>,
+    wallet_address: Pubkey,
+) -> Result<()> {
+    ensure_wallet_matches_status(&ctx.accounts.player_status, wallet_address)?;
+    ensure_player_authority(&ctx.accounts.player_status, ctx.accounts.authority.key())?;
     require!(
         ctx.accounts.ranked_room.is_settled,
         GuessrError::RoomNotSettled
@@ -309,52 +353,53 @@ pub struct SetRewardMint<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(challenge_hash: [u8; 32])]
+#[instruction(wallet_address: Pubkey, challenge_hash: [u8; 32])]
 pub struct OpenRankedRoom<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         init,
-        payer = player,
+        payer = authority,
         space = RANKED_ROOM_SPACE,
-        seeds = [b"ranked-room", player.key().as_ref(), challenge_hash.as_ref()],
+        seeds = [b"ranked-room", wallet_address.as_ref(), challenge_hash.as_ref()],
         bump
     )]
     pub ranked_room: Account<'info, RankedRoom>,
     #[account(
         mut,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump = player_status.bump,
-        constraint = player_status.player == player.key() @ GuessrError::Unauthorized
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized
     )]
     pub player_status: Account<'info, PlayerStatus>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
+#[instruction(wallet_address: Pubkey)]
 pub struct UpdateRankedState<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump = player_status.bump,
-        constraint = player_status.player == player.key() @ GuessrError::Unauthorized
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized
     )]
     pub player_status: Account<'info, PlayerStatus>,
     #[account(
         init_if_needed,
-        payer = player,
+        payer = authority,
         space = PLAYER_LIVE_STATE_SPACE,
-        seeds = [b"player-live-state", player.key().as_ref()],
+        seeds = [b"player-live-state", wallet_address.as_ref()],
         bump
     )]
     pub player_live_state: Account<'info, PlayerLiveState>,
     #[account(
         mut,
-        seeds = [b"ranked-room", player.key().as_ref(), ranked_room.challenge_hash.as_ref()],
+        seeds = [b"ranked-room", wallet_address.as_ref(), ranked_room.challenge_hash.as_ref()],
         bump = ranked_room.bump,
-        constraint = ranked_room.player == player.key() @ GuessrError::Unauthorized,
+        constraint = ranked_room.player == wallet_address @ GuessrError::Unauthorized,
     )]
     pub ranked_room: Account<'info, RankedRoom>,
     #[account(
@@ -372,7 +417,7 @@ pub struct UpdateRankedState<'info> {
     pub mint_authority: UncheckedAccount<'info>,
     #[account(
         mut,
-        constraint = player_token_account.owner == player.key() @ GuessrError::InvalidTokenOwner,
+        constraint = player_token_account.owner == wallet_address @ GuessrError::InvalidTokenOwner,
         constraint = player_token_account.mint == reward_mint.key() @ GuessrError::InvalidTokenMint,
     )]
     pub player_token_account: Account<'info, TokenAccount>,
@@ -387,70 +432,66 @@ pub struct UpdateRankedState<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(wallet_address: Pubkey)]
 pub struct SettleRankedRoom<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"ranked-room", player.key().as_ref(), ranked_room.challenge_hash.as_ref()],
+        seeds = [b"ranked-room", wallet_address.as_ref(), ranked_room.challenge_hash.as_ref()],
         bump = ranked_room.bump,
-        constraint = ranked_room.player == player.key() @ GuessrError::Unauthorized,
+        constraint = ranked_room.player == wallet_address @ GuessrError::Unauthorized,
     )]
     pub ranked_room: Account<'info, RankedRoom>,
     #[account(
-        seeds = [b"ranked-config"],
-        bump = ranked_config.bump,
+        seeds = [b"player-status", wallet_address.as_ref()],
+        bump = player_status.bump,
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized,
     )]
-    pub ranked_config: Account<'info, RankedConfig>,
-    #[account(mut, address = ranked_config.reward_mint)]
-    pub reward_mint: Account<'info, Mint>,
-    /// CHECK: PDA signer for mint authority.
-    #[account(
-        seeds = [b"mint-authority"],
-        bump = ranked_config.mint_authority_bump,
-    )]
-    pub mint_authority: UncheckedAccount<'info>,
-    #[account(
-        mut,
-        constraint = player_token_account.owner == player.key() @ GuessrError::InvalidTokenOwner,
-        constraint = player_token_account.mint == reward_mint.key() @ GuessrError::InvalidTokenMint,
-    )]
-    pub player_token_account: Account<'info, TokenAccount>,
-    #[account(
-        mut,
-        address = ranked_config.treasury_token_account,
-        constraint = treasury_token_account.mint == reward_mint.key() @ GuessrError::InvalidTreasuryMint,
-    )]
-    pub treasury_token_account: Account<'info, TokenAccount>,
-    pub token_program: Program<'info, Token>,
+    pub player_status: Account<'info, PlayerStatus>,
     #[account(
         init_if_needed,
-        payer = player,
+        payer = authority,
         space = PLAYER_PROFILE_SPACE,
-        seeds = [b"player-profile", player.key().as_ref()],
+        seeds = [b"player-profile", wallet_address.as_ref()],
         bump
     )]
     pub player_profile: Account<'info, PlayerProfile>,
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = PLAYER_REWARD_STATS_SPACE,
+        seeds = [b"player-rewards", wallet_address.as_ref()],
+        bump
+    )]
+    pub player_rewards: Account<'info, PlayerRewardStats>,
+    #[account(
+        mut,
+        seeds = [b"leaderboard"],
+        bump = leaderboard.bump,
+    )]
+    pub leaderboard: Account<'info, LeaderboardState>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
+#[instruction(wallet_address: Pubkey)]
 pub struct CloseRankedRoom<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump = player_status.bump,
-        constraint = player_status.player == player.key() @ GuessrError::Unauthorized
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized
     )]
     pub player_status: Account<'info, PlayerStatus>,
     #[account(
         mut,
-        close = player,
-        seeds = [b"ranked-room", player.key().as_ref(), ranked_room.challenge_hash.as_ref()],
+        close = authority,
+        seeds = [b"ranked-room", wallet_address.as_ref(), ranked_room.challenge_hash.as_ref()],
         bump = ranked_room.bump,
-        constraint = ranked_room.player == player.key() @ GuessrError::Unauthorized,
+        constraint = ranked_room.player == wallet_address @ GuessrError::Unauthorized,
     )]
     pub ranked_room: Account<'info, RankedRoom>,
 }

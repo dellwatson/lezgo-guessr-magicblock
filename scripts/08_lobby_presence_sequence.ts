@@ -1,6 +1,7 @@
 import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
 import {
   anchorDiscriminator,
+  concatBinary,
   ensureMinimumBalance,
   getConnection,
   loadUserKeypairFromEnv,
@@ -34,7 +35,7 @@ function parseLobbyOnlinePlayers(data: Buffer | null) {
 
 async function joinLobby(params: {
   programId: PublicKey;
-  wallet: ReturnType<typeof loadKeypair>;
+  wallet: ReturnType<typeof loadUserKeypairFromEnv>;
   lobbyPda: PublicKey;
 }) {
   const playerStatusPda = derivePlayerStatus(params.programId, params.wallet.publicKey);
@@ -46,7 +47,11 @@ async function joinLobby(params: {
       { pubkey: playerStatusPda, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: Buffer.from(anchorDiscriminator('join_lobby')),
+    data: concatBinary([
+      anchorDiscriminator('join_lobby'),
+      params.wallet.publicKey.toBytes(),
+      params.wallet.publicKey.toBytes(),
+    ]),
   });
 
   return sendInstruction({
@@ -57,7 +62,7 @@ async function joinLobby(params: {
 
 async function leaveLobby(params: {
   programId: PublicKey;
-  wallet: ReturnType<typeof loadKeypair>;
+  wallet: ReturnType<typeof loadUserKeypairFromEnv>;
   lobbyPda: PublicKey;
 }) {
   const playerStatusPda = derivePlayerStatus(params.programId, params.wallet.publicKey);
@@ -68,7 +73,7 @@ async function leaveLobby(params: {
       { pubkey: params.lobbyPda, isSigner: false, isWritable: true },
       { pubkey: playerStatusPda, isSigner: false, isWritable: true },
     ],
-    data: Buffer.from(anchorDiscriminator('leave_lobby')),
+    data: concatBinary([anchorDiscriminator('leave_lobby'), params.wallet.publicKey.toBytes()]),
   });
 
   return sendInstruction({

@@ -61,7 +61,11 @@ async function joinLobby(params: {
       { pubkey: playerStatusPda, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: Buffer.from(anchorDiscriminator('join_lobby')),
+    data: concatBinary([
+      anchorDiscriminator('join_lobby'),
+      params.player.publicKey.toBytes(),
+      params.player.publicKey.toBytes(),
+    ]),
   });
 
   return sendInstruction({
@@ -85,7 +89,11 @@ async function enterRoom(params: {
       { pubkey: params.duelRoomPda, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: concatBinary([anchorDiscriminator('enter_room'), params.roomPda.toBytes()]),
+    data: concatBinary([
+      anchorDiscriminator('enter_room'),
+      params.player.publicKey.toBytes(),
+      params.roomPda.toBytes(),
+    ]),
   });
 
   return sendInstruction({
@@ -104,10 +112,10 @@ async function heartbeat(params: {
     programId: params.programId,
     keys: [
       { pubkey: params.player.publicKey, isSigner: true, isWritable: true },
-      { pubkey: params.lobbyPda, isSigner: false, isWritable: false },
+      { pubkey: params.lobbyPda, isSigner: false, isWritable: true },
       { pubkey: playerStatusPda, isSigner: false, isWritable: true },
     ],
-    data: Buffer.from(anchorDiscriminator('heartbeat')),
+    data: concatBinary([anchorDiscriminator('heartbeat'), params.player.publicKey.toBytes()]),
   });
 
   return sendInstruction({
@@ -186,11 +194,11 @@ async function main() {
       : null;
 
   function parsePlayerStatus(data: Buffer | null) {
-    if (!data || data.length < 8 + 32 + 32 + 8 + 1) {
+    if (!data || data.length < 8 + 32 + 32 + 32 + 8 + 1) {
       return null;
     }
-    const activeRoom = new PublicKey(data.subarray(8 + 32, 8 + 32 + 32)).toBase58();
-    const isOnline = data[8 + 32 + 32 + 8] === 1;
+    const activeRoom = new PublicKey(data.subarray(8 + 64, 8 + 96)).toBase58();
+    const isOnline = data[8 + 96 + 8] === 1;
     return { activeRoom, isOnline };
   }
 

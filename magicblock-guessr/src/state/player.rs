@@ -3,6 +3,7 @@ use anchor_lang::prelude::*;
 #[account]
 pub struct PlayerStatus {
     pub player: Pubkey,
+    pub session_address: Pubkey,
     pub active_room: [u8; 32],
     pub last_heartbeat_ts: i64,
     pub is_online: bool,

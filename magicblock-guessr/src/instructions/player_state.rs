@@ -3,6 +3,7 @@ use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
 
 use crate::constants::PLAYER_LIVE_STATE_SPACE;
 use crate::error::GuessrError;
+use crate::instructions::{ensure_player_authority, ensure_wallet_matches_status};
 use crate::state::{DuelRoom, PlayerLiveState, PlayerStatus, RankedConfig};
 
 pub fn update_player_state_handler(
@@ -19,6 +20,10 @@ pub fn update_player_state_handler(
     let player_status = &mut ctx.accounts.player_status;
     let live_state = &mut ctx.accounts.player_live_state;
     let now = Clock::get()?.unix_timestamp;
+    let authority = ctx.accounts.authority.key();
+
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+    ensure_player_authority(player_status, authority)?;
 
     require!(player_status.is_online, GuessrError::PlayerOffline);
     require!(
@@ -26,11 +31,19 @@ pub fn update_player_state_handler(
         GuessrError::RoomMismatch
     );
 
+    if session_address != Pubkey::default() {
+        if authority == wallet_address {
+            player_status.session_address = session_address;
+        } else {
+            require!(session_address == authority, GuessrError::Unauthorized);
+        }
+    }
+
     player_status.last_heartbeat_ts = now;
 
-    live_state.player = ctx.accounts.player.key();
-    live_state.wallet_address = wallet_address;
-    live_state.session_address = session_address;
+    live_state.player = player_status.player;
+    live_state.wallet_address = player_status.player;
+    live_state.session_address = authority;
     live_state.room_id = room_id;
     live_state.round_index = round_index;
     live_state.hp = hp;
@@ -55,15 +68,18 @@ pub fn update_duel_state_handler(
     total_score: u64,
     earning_delta: i64, // duel might not use this yet for now.
     movement_hash: [u8; 32], // is movement has -> coordinate ?
-    // need to know the owner of the state. 
+                        // need to know the owner of the state.
 ) -> Result<()> {
-    // need to verify if sender is the matching with user_address/session_address in the future.
     let player_status = &mut ctx.accounts.player_status;
     let live_state = &mut ctx.accounts.player_live_state;
     let duel_room = &mut ctx.accounts.duel_room;
     let config = &ctx.accounts.ranked_config;
-    let player_key = ctx.accounts.player.key();
+    let authority = ctx.accounts.authority.key();
+    let player_key = player_status.player;
     let now = Clock::get()?.unix_timestamp;
+
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+    ensure_player_authority(player_status, authority)?;
 
     require!(player_status.is_online, GuessrError::PlayerOffline);
     require!(
@@ -72,6 +88,14 @@ pub fn update_duel_state_handler(
     );
     require!(duel_room.room_id == room_id, GuessrError::RoomMismatch);
     require!(!duel_room.is_settled, GuessrError::DuelAlreadySettled);
+
+    if session_address != Pubkey::default() {
+        if authority == wallet_address {
+            player_status.session_address = session_address;
+        } else {
+            require!(session_address == authority, GuessrError::Unauthorized);
+        }
+    }
 
     if duel_room.host != player_key && duel_room.challenger != player_key {
         if duel_room.challenger == Pubkey::default() {
@@ -119,19 +143,23 @@ pub fn update_duel_state_handler(
 
     let mut actual_penalty = 0_u64;
     if penalty_amount > 0 {
-        let player_balance = ctx.accounts.player_token_account.amount;
-        let transfer_amount = penalty_amount.min(player_balance);
-        if transfer_amount > 0 {
-            let cpi_accounts = Transfer {
-                from: ctx.accounts.player_token_account.to_account_info(),
-                to: ctx.accounts.treasury_token_account.to_account_info(),
-                authority: ctx.accounts.player.to_account_info(),
-            };
-            token::transfer(
-                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
-                transfer_amount,
-            )?;
-            actual_penalty = transfer_amount;
+        // Session-key updates do not control the wallet-owned SPL account authority.
+        // Penalty transfer only executes when the wallet itself is the signer.
+        if authority == wallet_address {
+            let player_balance = ctx.accounts.player_token_account.amount;
+            let transfer_amount = penalty_amount.min(player_balance);
+            if transfer_amount > 0 {
+                let cpi_accounts = Transfer {
+                    from: ctx.accounts.player_token_account.to_account_info(),
+                    to: ctx.accounts.treasury_token_account.to_account_info(),
+                    authority: ctx.accounts.authority.to_account_info(),
+                };
+                token::transfer(
+                    CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
+                    transfer_amount,
+                )?;
+                actual_penalty = transfer_amount;
+            }
         }
     }
 
@@ -163,8 +191,8 @@ pub fn update_duel_state_handler(
     player_status.last_heartbeat_ts = now;
 
     live_state.player = player_key;
-    live_state.wallet_address = wallet_address;
-    live_state.session_address = session_address;
+    live_state.wallet_address = player_key;
+    live_state.session_address = authority;
     live_state.room_id = room_id;
     live_state.round_index = round_index;
     live_state.hp = hp;
@@ -179,21 +207,22 @@ pub fn update_duel_state_handler(
 }
 
 #[derive(Accounts)]
+#[instruction(wallet_address: Pubkey)]
 pub struct UpdatePlayerState<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump = player_status.bump,
-        constraint = player_status.player == player.key() @ GuessrError::Unauthorized
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized
     )]
     pub player_status: Account<'info, PlayerStatus>,
     #[account(
         init_if_needed,
-        payer = player,
+        payer = authority,
         space = PLAYER_LIVE_STATE_SPACE,
-        seeds = [b"player-live-state", player.key().as_ref()],
+        seeds = [b"player-live-state", wallet_address.as_ref()],
         bump
     )]
     pub player_live_state: Account<'info, PlayerLiveState>,
@@ -201,22 +230,26 @@ pub struct UpdatePlayerState<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(room_id: Pubkey)]
+#[instruction(
+    wallet_address: Pubkey,
+    _session_address: Pubkey,
+    room_id: [u8; 32]
+)]
 pub struct UpdateDuelState<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump = player_status.bump,
-        constraint = player_status.player == player.key() @ GuessrError::Unauthorized
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized
     )]
     pub player_status: Account<'info, PlayerStatus>,
     #[account(
         init_if_needed,
-        payer = player,
+        payer = authority,
         space = PLAYER_LIVE_STATE_SPACE,
-        seeds = [b"player-live-state", player.key().as_ref()],
+        seeds = [b"player-live-state", wallet_address.as_ref()],
         bump
     )]
     pub player_live_state: Account<'info, PlayerLiveState>,
@@ -241,7 +274,7 @@ pub struct UpdateDuelState<'info> {
     pub mint_authority: UncheckedAccount<'info>,
     #[account(
         mut,
-        constraint = player_token_account.owner == player.key() @ GuessrError::InvalidTokenOwner,
+        constraint = player_token_account.owner == wallet_address @ GuessrError::InvalidTokenOwner,
         constraint = player_token_account.mint == reward_mint.key() @ GuessrError::InvalidTokenMint,
     )]
     pub player_token_account: Account<'info, TokenAccount>,

@@ -1,29 +1,32 @@
 use anchor_lang::prelude::*;
 
-use crate::constants::PLAYER_PROFILE_SPACE;
+use crate::constants::{PLAYER_PROFILE_SPACE, PLAYER_REWARD_STATS_SPACE};
 use crate::error::GuessrError;
-use crate::instructions::profile::{
-    apply_profile_match_result, ProfileMatchMode, ProfileOutcome,
-};
-use crate::state::{DuelRoom, PlayerProfile, PlayerStatus};
+use crate::instructions::leaderboard::update_leaderboards;
+use crate::instructions::profile::{apply_profile_match_result, ProfileMatchMode, ProfileOutcome};
+use crate::instructions::{ensure_player_authority, ensure_wallet_matches_status};
+use crate::state::{DuelRoom, LeaderboardState, PlayerProfile, PlayerRewardStats, PlayerStatus};
 
 pub fn settle_duel_room_handler(
     ctx: Context<SettleDuelRoom>,
+    wallet_address: Pubkey,
     room_id: [u8; 32], // room_id is a string and unique too
 
     winner: Pubkey,
     is_draw: bool, // cant be draw, if draw winner is zero?
     host_score: u64,
     challenger_score: u64, // there's no challenger score, score is on pub
-    // XP ? 
+                           // XP ?
 ) -> Result<()> {
-    let player_key = ctx.accounts.player.key();
+    let player_key = ctx.accounts.player_status.player;
     let player_status = &mut ctx.accounts.player_status;
     let duel_room = &mut ctx.accounts.duel_room;
     let host_profile = &mut ctx.accounts.host_profile;
     let challenger_profile = &mut ctx.accounts.challenger_profile;
     let now = Clock::get()?.unix_timestamp;
 
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+    ensure_player_authority(player_status, ctx.accounts.authority.key())?;
     require!(duel_room.room_id == room_id, GuessrError::RoomMismatch);
     require!(!duel_room.is_settled, GuessrError::DuelAlreadySettled);
     require!(
@@ -88,10 +91,18 @@ pub fn settle_duel_room_handler(
     let host_xp = 15_u64
         .checked_add(host_score.checked_div(20).ok_or(GuessrError::Overflow)?)
         .ok_or(GuessrError::Overflow)?
-        .checked_add(if !is_draw && winner == duel_room.host { 25 } else { 8 })
+        .checked_add(if !is_draw && winner == duel_room.host {
+            25
+        } else {
+            8
+        })
         .ok_or(GuessrError::Overflow)?;
     let challenger_xp = 15_u64
-        .checked_add(challenger_score.checked_div(20).ok_or(GuessrError::Overflow)?)
+        .checked_add(
+            challenger_score
+                .checked_div(20)
+                .ok_or(GuessrError::Overflow)?,
+        )
         .ok_or(GuessrError::Overflow)?
         .checked_add(if !is_draw && winner == duel_room.challenger {
             25
@@ -138,6 +149,34 @@ pub fn settle_duel_room_handler(
         now,
     )?;
 
+    let host_rewards = &mut ctx.accounts.host_rewards;
+    if host_rewards.player == Pubkey::default() {
+        host_rewards.touch(duel_room.host, ctx.bumps.host_rewards, now);
+    }
+    host_rewards.total_earned = host_rewards
+        .total_earned
+        .checked_add(duel_room.host_earned)
+        .ok_or(GuessrError::Overflow)?;
+    host_rewards.last_update_ts = now;
+
+    let challenger_rewards = &mut ctx.accounts.challenger_rewards;
+    if challenger_rewards.player == Pubkey::default() {
+        challenger_rewards.touch(duel_room.challenger, ctx.bumps.challenger_rewards, now);
+    }
+    challenger_rewards.total_earned = challenger_rewards
+        .total_earned
+        .checked_add(duel_room.challenger_earned)
+        .ok_or(GuessrError::Overflow)?;
+    challenger_rewards.last_update_ts = now;
+
+    update_leaderboards(&mut ctx.accounts.leaderboard, host_profile, host_rewards, now);
+    update_leaderboards(
+        &mut ctx.accounts.leaderboard,
+        challenger_profile,
+        challenger_rewards,
+        now,
+    );
+
     if player_status.active_room == room_id {
         player_status.active_room = [0u8; 32];
     }
@@ -146,15 +185,15 @@ pub fn settle_duel_room_handler(
 }
 
 #[derive(Accounts)]
-#[instruction(room_id: [u8; 32])]
+#[instruction(wallet_address: Pubkey, room_id: [u8; 32])]
 pub struct SettleDuelRoom<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump = player_status.bump,
-        constraint = player_status.player == player.key() @ GuessrError::Unauthorized
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized
     )]
     pub player_status: Account<'info, PlayerStatus>,
     #[account(
@@ -165,7 +204,7 @@ pub struct SettleDuelRoom<'info> {
     pub duel_room: Account<'info, DuelRoom>,
     #[account(
         init_if_needed,
-        payer = player,
+        payer = authority,
         space = PLAYER_PROFILE_SPACE,
         seeds = [b"player-profile", duel_room.host.as_ref()],
         bump
@@ -173,11 +212,33 @@ pub struct SettleDuelRoom<'info> {
     pub host_profile: Account<'info, PlayerProfile>,
     #[account(
         init_if_needed,
-        payer = player,
+        payer = authority,
         space = PLAYER_PROFILE_SPACE,
         seeds = [b"player-profile", duel_room.challenger.as_ref()],
         bump
     )]
     pub challenger_profile: Account<'info, PlayerProfile>,
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = PLAYER_REWARD_STATS_SPACE,
+        seeds = [b"player-rewards", duel_room.host.as_ref()],
+        bump
+    )]
+    pub host_rewards: Account<'info, PlayerRewardStats>,
+    #[account(
+        init_if_needed,
+        payer = authority,
+        space = PLAYER_REWARD_STATS_SPACE,
+        seeds = [b"player-rewards", duel_room.challenger.as_ref()],
+        bump
+    )]
+    pub challenger_rewards: Account<'info, PlayerRewardStats>,
+    #[account(
+        mut,
+        seeds = [b"leaderboard"],
+        bump = leaderboard.bump,
+    )]
+    pub leaderboard: Account<'info, LeaderboardState>,
     pub system_program: Program<'info, System>,
 }

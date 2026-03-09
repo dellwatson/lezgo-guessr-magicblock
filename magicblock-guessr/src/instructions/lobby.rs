@@ -2,12 +2,45 @@ use anchor_lang::prelude::*;
 
 use crate::constants::PLAYER_STATUS_SPACE;
 use crate::error::GuessrError;
+use crate::instructions::{ensure_player_authority, ensure_wallet_matches_status};
 use crate::state::{LobbyState, PlayerStatus};
 
-pub fn join_lobby_handler(ctx: Context<JoinLobby>) -> Result<()> {
+pub fn join_lobby_handler(
+    ctx: Context<JoinLobby>,
+    wallet_address: Pubkey,
+    session_address: Pubkey,
+) -> Result<()> {
     let lobby = &mut ctx.accounts.lobby_state;
     let player_status = &mut ctx.accounts.player_status;
     let now = Clock::get()?.unix_timestamp;
+    let authority = ctx.accounts.authority.key();
+
+    if player_status.player == Pubkey::default() {
+        player_status.player = wallet_address;
+        if authority == wallet_address {
+            player_status.session_address = if session_address != Pubkey::default() {
+                session_address
+            } else {
+                Pubkey::default()
+            };
+        } else {
+            require!(
+                session_address != Pubkey::default() && authority == session_address,
+                GuessrError::Unauthorized
+            );
+            player_status.session_address = session_address;
+        }
+    }
+
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+
+    if authority == wallet_address {
+        if session_address != Pubkey::default() {
+            player_status.session_address = session_address;
+        }
+    } else {
+        ensure_player_authority(player_status, authority)?;
+    }
 
     let was_active = player_status.is_online
         && now
@@ -29,7 +62,6 @@ pub fn join_lobby_handler(ctx: Context<JoinLobby>) -> Result<()> {
             .ok_or(GuessrError::Overflow)?;
     }
 
-    player_status.player = ctx.accounts.player.key();
     player_status.active_room = [0u8; 32];
     player_status.last_heartbeat_ts = now;
     player_status.is_online = true;
@@ -39,9 +71,11 @@ pub fn join_lobby_handler(ctx: Context<JoinLobby>) -> Result<()> {
     Ok(())
 }
 
-pub fn heartbeat_handler(ctx: Context<Heartbeat>) -> Result<()> {
+pub fn heartbeat_handler(ctx: Context<Heartbeat>, wallet_address: Pubkey) -> Result<()> {
     let lobby = &mut ctx.accounts.lobby_state;
     let player_status = &mut ctx.accounts.player_status;
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+    ensure_player_authority(player_status, ctx.accounts.authority.key())?;
 
     require!(player_status.is_online, GuessrError::PlayerOffline);
     let now = Clock::get()?.unix_timestamp;
@@ -64,9 +98,11 @@ pub fn heartbeat_handler(ctx: Context<Heartbeat>) -> Result<()> {
     Ok(())
 }
 
-pub fn leave_lobby_handler(ctx: Context<LeaveLobby>) -> Result<()> {
+pub fn leave_lobby_handler(ctx: Context<LeaveLobby>, wallet_address: Pubkey) -> Result<()> {
     let lobby = &mut ctx.accounts.lobby_state;
     let player_status = &mut ctx.accounts.player_status;
+    ensure_wallet_matches_status(player_status, wallet_address)?;
+    ensure_player_authority(player_status, ctx.accounts.authority.key())?;
 
     if player_status.is_online {
         lobby.online_players = lobby
@@ -107,9 +143,10 @@ pub fn prune_stale_player_handler(ctx: Context<PruneStalePlayer>) -> Result<()> 
 }
 
 #[derive(Accounts)]
+#[instruction(wallet_address: Pubkey, _session_address: Pubkey)]
 pub struct JoinLobby<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
         seeds = [b"lobby-state"],
@@ -118,9 +155,9 @@ pub struct JoinLobby<'info> {
     pub lobby_state: Account<'info, LobbyState>,
     #[account(
         init_if_needed,
-        payer = player,
+        payer = authority,
         space = PLAYER_STATUS_SPACE,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump
     )]
     pub player_status: Account<'info, PlayerStatus>,
@@ -128,9 +165,10 @@ pub struct JoinLobby<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(wallet_address: Pubkey)]
 pub struct Heartbeat<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
         seeds = [b"lobby-state"],
@@ -139,9 +177,9 @@ pub struct Heartbeat<'info> {
     pub lobby_state: Account<'info, LobbyState>,
     #[account(
         mut,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump = player_status.bump,
-        constraint = player_status.player == player.key() @ GuessrError::Unauthorized
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized
     )]
     pub player_status: Account<'info, PlayerStatus>,
 }
@@ -160,9 +198,10 @@ pub struct PruneStalePlayer<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(wallet_address: Pubkey)]
 pub struct LeaveLobby<'info> {
     #[account(mut)]
-    pub player: Signer<'info>,
+    pub authority: Signer<'info>,
     #[account(
         mut,
         seeds = [b"lobby-state"],
@@ -171,9 +210,9 @@ pub struct LeaveLobby<'info> {
     pub lobby_state: Account<'info, LobbyState>,
     #[account(
         mut,
-        seeds = [b"player-status", player.key().as_ref()],
+        seeds = [b"player-status", wallet_address.as_ref()],
         bump = player_status.bump,
-        constraint = player_status.player == player.key() @ GuessrError::Unauthorized
+        constraint = player_status.player == wallet_address @ GuessrError::Unauthorized
     )]
     pub player_status: Account<'info, PlayerStatus>,
 }

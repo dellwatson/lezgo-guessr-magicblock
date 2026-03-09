@@ -28,6 +28,8 @@ const LOBBY_STATE_SEED = new TextEncoder().encode('lobby-state');
 const PLAYER_STATUS_SEED = new TextEncoder().encode('player-status');
 const PLAYER_LIVE_STATE_SEED = new TextEncoder().encode('player-live-state');
 const PLAYER_PROFILE_SEED = new TextEncoder().encode('player-profile');
+const PLAYER_REWARDS_SEED = new TextEncoder().encode('player-rewards');
+const LEADERBOARD_SEED = new TextEncoder().encode('leaderboard');
 const ACTION_HINT_OPEN = 0;
 const ACTION_MARK_MOVE = 1;
 const ACTION_GUESS_SUBMIT = 2;
@@ -57,6 +59,19 @@ function deriveRankedRoom(programId: PublicKey, player: PublicKey, challengeHash
     programId
   );
   return rankedRoomPda;
+}
+
+function derivePlayerRewards(programId: PublicKey, player: PublicKey) {
+  const [playerRewardsPda] = PublicKey.findProgramAddressSync(
+    [PLAYER_REWARDS_SEED, player.toBytes()],
+    programId
+  );
+  return playerRewardsPda;
+}
+
+function deriveLeaderboard(programId: PublicKey) {
+  const [leaderboardPda] = PublicKey.findProgramAddressSync([LEADERBOARD_SEED], programId);
+  return leaderboardPda;
 }
 
 function deriveLobby(programId: PublicKey) {
@@ -188,6 +203,8 @@ async function main() {
   const playerStatusPda = derivePlayerStatus(rankedProgramId, player.publicKey);
   const playerLiveStatePda = derivePlayerLiveState(rankedProgramId, player.publicKey);
   const playerProfilePda = derivePlayerProfile(rankedProgramId, player.publicKey);
+  const playerRewardsPda = derivePlayerRewards(rankedProgramId, player.publicKey);
+  const leaderboardPda = deriveLeaderboard(rankedProgramId);
   const playerAta = await ensurePlayerAta({
     payer: player,
     owner: player.publicKey,
@@ -204,7 +221,11 @@ async function main() {
       { pubkey: playerStatusPda, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: Buffer.from(anchorDiscriminator('join_lobby')),
+    data: concatBinary([
+      anchorDiscriminator('join_lobby'),
+      player.publicKey.toBytes(),
+      player.publicKey.toBytes(),
+    ]),
   });
   const joinTx = await sendInstruction({
     payer: player,
@@ -219,7 +240,11 @@ async function main() {
       { pubkey: playerStatusPda, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: concatBinary([anchorDiscriminator('open_ranked_room'), challengeHash]),
+    data: concatBinary([
+      anchorDiscriminator('open_ranked_room'),
+      player.publicKey.toBytes(),
+      challengeHash,
+    ]),
   });
   const openTx = await sendInstruction({
     payer: player,
@@ -244,6 +269,7 @@ async function main() {
     ],
     data: concatBinary([
       anchorDiscriminator('update_ranked_state'),
+      player.publicKey.toBytes(),
       encodeU16(0),
       encodeU16(100),
       encodeU32(0),
@@ -277,6 +303,7 @@ async function main() {
     ],
     data: concatBinary([
       anchorDiscriminator('update_ranked_state'),
+      player.publicKey.toBytes(),
       encodeU16(0),
       encodeU16(96),
       encodeU32(530),
@@ -310,6 +337,7 @@ async function main() {
     ],
     data: concatBinary([
       anchorDiscriminator('update_ranked_state'),
+      player.publicKey.toBytes(),
       encodeU16(0),
       encodeU16(92),
       encodeU32(180),
@@ -330,16 +358,17 @@ async function main() {
     keys: [
       { pubkey: player.publicKey, isSigner: true, isWritable: true },
       { pubkey: rankedRoomPda, isSigner: false, isWritable: true },
-      { pubkey: rankedConfigPda, isSigner: false, isWritable: false },
-      { pubkey: config.rewardMint, isSigner: false, isWritable: true },
-      { pubkey: mintAuthorityPda, isSigner: false, isWritable: false },
-      { pubkey: playerAta, isSigner: false, isWritable: true },
-      { pubkey: config.treasuryTokenAccount, isSigner: false, isWritable: true },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: playerStatusPda, isSigner: false, isWritable: false },
       { pubkey: playerProfilePda, isSigner: false, isWritable: true },
+      { pubkey: playerRewardsPda, isSigner: false, isWritable: true },
+      { pubkey: leaderboardPda, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: concatBinary([anchorDiscriminator('settle_ranked_room'), encodeU64(score)]),
+    data: concatBinary([
+      anchorDiscriminator('settle_ranked_room'),
+      player.publicKey.toBytes(),
+      encodeU64(score),
+    ]),
   });
   const settleTx = await sendInstruction({
     payer: player,
@@ -353,7 +382,7 @@ async function main() {
       { pubkey: playerStatusPda, isSigner: false, isWritable: true },
       { pubkey: rankedRoomPda, isSigner: false, isWritable: true },
     ],
-    data: Buffer.from(anchorDiscriminator('close_ranked_room')),
+    data: concatBinary([anchorDiscriminator('close_ranked_room'), player.publicKey.toBytes()]),
   });
   const closeTx = await sendInstruction({
     payer: player,

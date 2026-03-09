@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Mint, TokenAccount};
 
-use crate::constants::{LOBBY_STATE_SPACE, RANKED_CONFIG_SPACE};
+use crate::constants::{LEADERBOARD_SPACE, LOBBY_STATE_SPACE, RANKED_CONFIG_SPACE};
 use crate::error::GuessrError;
-use crate::state::{LobbyState, RankedConfig};
+use crate::state::{LeaderboardState, LobbyState, RankedConfig};
 
 pub fn initialize_system_handler(
     ctx: Context<InitializeSystem>,
@@ -39,6 +39,10 @@ pub fn initialize_system_handler(
     config.bump = ctx.bumps.ranked_config;
     config.reserved = [0; 13];
 
+    ctx.accounts
+        .leaderboard
+        .reset(ctx.bumps.leaderboard, Clock::get()?.unix_timestamp);
+
     Ok(())
 }
 
@@ -62,6 +66,14 @@ pub struct InitializeSystem<'info> {
         bump
     )]
     pub ranked_config: Account<'info, RankedConfig>,
+    #[account(
+        init,
+        payer = authority,
+        space = LEADERBOARD_SPACE,
+        seeds = [b"leaderboard"],
+        bump
+    )]
+    pub leaderboard: Account<'info, LeaderboardState>,
     pub reward_mint: Account<'info, Mint>,
     #[account(
         mut,
@@ -73,4 +85,3 @@ pub struct InitializeSystem<'info> {
     pub mint_authority: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
-

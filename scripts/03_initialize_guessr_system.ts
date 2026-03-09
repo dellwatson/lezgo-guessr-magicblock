@@ -16,6 +16,7 @@ import {
 const LOBBY_STATE_SEED = new TextEncoder().encode('lobby-state');
 const RANKED_CONFIG_SEED = new TextEncoder().encode('ranked-config');
 const MINT_AUTHORITY_SEED = new TextEncoder().encode('mint-authority');
+const LEADERBOARD_SEED = new TextEncoder().encode('leaderboard');
 
 async function main() {
   const payer = loadKeypair(requireEnv('SOLANA_PAYER_KEYPAIR'));
@@ -29,6 +30,7 @@ async function main() {
 
   const [lobbyStatePda] = PublicKey.findProgramAddressSync([LOBBY_STATE_SEED], guessrProgramId);
   const [rankedConfigPda] = PublicKey.findProgramAddressSync([RANKED_CONFIG_SEED], guessrProgramId);
+  const [leaderboardPda] = PublicKey.findProgramAddressSync([LEADERBOARD_SEED], guessrProgramId);
   const [mintAuthorityPda] = PublicKey.findProgramAddressSync(
     [MINT_AUTHORITY_SEED],
     guessrProgramId
@@ -40,6 +42,7 @@ async function main() {
       { pubkey: payer.publicKey, isSigner: true, isWritable: true },
       { pubkey: lobbyStatePda, isSigner: false, isWritable: true },
       { pubkey: rankedConfigPda, isSigner: false, isWritable: true },
+      { pubkey: leaderboardPda, isSigner: false, isWritable: true },
       { pubkey: rewardMint, isSigner: false, isWritable: false },
       { pubkey: treasuryTokenAccount, isSigner: false, isWritable: true },
       { pubkey: mintAuthorityPda, isSigner: false, isWritable: false },
@@ -64,11 +67,12 @@ async function main() {
   console.log('Guessr system initialized');
   console.log('Lobby PDA:', lobbyStatePda.toBase58());
   console.log('Ranked config PDA:', rankedConfigPda.toBase58());
+  console.log('Leaderboard PDA:', leaderboardPda.toBase58());
   console.log('Mint authority PDA:', mintAuthorityPda.toBase58());
   console.log('Signature:', signature);
   writeReport(
     '03_initialize_guessr_system.log',
-    `signature=${signature} lobby=${lobbyStatePda.toBase58()} rankedConfig=${rankedConfigPda.toBase58()} mintAuthority=${mintAuthorityPda.toBase58()}`
+    `signature=${signature} lobby=${lobbyStatePda.toBase58()} rankedConfig=${rankedConfigPda.toBase58()} leaderboard=${leaderboardPda.toBase58()} mintAuthority=${mintAuthorityPda.toBase58()}`
   );
 }
 

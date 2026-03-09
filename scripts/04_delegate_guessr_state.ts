@@ -14,9 +14,11 @@ import {
 
 const LOBBY_STATE_SEED = new TextEncoder().encode('lobby-state');
 const RANKED_CONFIG_SEED = new TextEncoder().encode('ranked-config');
+const LEADERBOARD_SEED = new TextEncoder().encode('leaderboard');
 const PLAYER_STATUS_SEED = new TextEncoder().encode('player-status');
 const PLAYER_LIVE_STATE_SEED = new TextEncoder().encode('player-live-state');
 const PLAYER_PROFILE_SEED = new TextEncoder().encode('player-profile');
+const PLAYER_REWARDS_SEED = new TextEncoder().encode('player-rewards');
 const ROOM_ID_SEED = new TextEncoder().encode('room-id');
 const DUEL_ROOM_SEED = new TextEncoder().encode('duel-room');
 const RANKED_ROOM_SEED = new TextEncoder().encode('ranked-room');
@@ -30,6 +32,8 @@ const DELEGATE_TARGET_PLAYER_PROFILE = 4;
 const DELEGATE_TARGET_DUEL_ROOM = 5;
 const DELEGATE_TARGET_RANKED_ROOM = 6;
 const DELEGATE_TARGET_REWARD_CLAIM = 7;
+const DELEGATE_TARGET_LEADERBOARD = 8;
+const DELEGATE_TARGET_PLAYER_REWARDS = 9;
 
 const MATCH_MODE_DUEL = 0;
 const MATCH_MODE_RANKED_SOLO = 1;
@@ -42,7 +46,9 @@ type DelegationTarget =
   | typeof DELEGATE_TARGET_PLAYER_PROFILE
   | typeof DELEGATE_TARGET_DUEL_ROOM
   | typeof DELEGATE_TARGET_RANKED_ROOM
-  | typeof DELEGATE_TARGET_REWARD_CLAIM;
+  | typeof DELEGATE_TARGET_REWARD_CLAIM
+  | typeof DELEGATE_TARGET_LEADERBOARD
+  | typeof DELEGATE_TARGET_PLAYER_REWARDS;
 
 type DelegationSpec = {
   label: string;
@@ -266,6 +272,7 @@ async function main() {
 
   const [lobbyStatePda] = PublicKey.findProgramAddressSync([LOBBY_STATE_SEED], programId);
   const [rankedConfigPda] = PublicKey.findProgramAddressSync([RANKED_CONFIG_SEED], programId);
+  const [leaderboardPda] = PublicKey.findProgramAddressSync([LEADERBOARD_SEED], programId);
 
   addSpec(specs, {
     label: 'lobby-state',
@@ -277,6 +284,12 @@ async function main() {
     label: 'ranked-config',
     target: DELEGATE_TARGET_RANKED_CONFIG,
     pda: rankedConfigPda,
+    required: true,
+  });
+  addSpec(specs, {
+    label: 'leaderboard',
+    target: DELEGATE_TARGET_LEADERBOARD,
+    pda: leaderboardPda,
     required: true,
   });
 
@@ -291,6 +304,10 @@ async function main() {
     );
     const [playerProfilePda] = PublicKey.findProgramAddressSync(
       [PLAYER_PROFILE_SEED, player.toBytes()],
+      programId
+    );
+    const [playerRewardsPda] = PublicKey.findProgramAddressSync(
+      [PLAYER_REWARDS_SEED, player.toBytes()],
       programId
     );
 
@@ -312,6 +329,12 @@ async function main() {
       pda: playerProfilePda,
       player,
     });
+    addSpec(specs, {
+      label: `player-rewards:${player.toBase58()}`,
+      target: DELEGATE_TARGET_PLAYER_REWARDS,
+      pda: playerRewardsPda,
+      player,
+    });
   }
 
   const duelRoomIds = [
@@ -322,7 +345,10 @@ async function main() {
 
   for (const roomIdOrAddress of duelRoomIds) {
     const roomIdBytes = parseRoomIdBytes(roomIdOrAddress, programId);
-    const [duelRoomPda] = PublicKey.findProgramAddressSync([DUEL_ROOM_SEED, roomIdBytes], programId);
+    const [duelRoomPda] = PublicKey.findProgramAddressSync(
+      [DUEL_ROOM_SEED, roomIdBytes],
+      programId
+    );
     addSpec(specs, {
       label: `duel-room:${roomIdOrAddress}`,
       target: DELEGATE_TARGET_DUEL_ROOM,
@@ -379,6 +405,7 @@ async function main() {
 
   const toDelegate: DelegationSpec[] = [];
   const skipped: string[] = [];
+  const skippedSpecs: DelegationSpec[] = [];
 
   for (const item of accountInfos) {
     if (item.account) {
@@ -391,6 +418,7 @@ async function main() {
     }
 
     skipped.push(item.spec.label);
+    skippedSpecs.push(item.spec);
   }
 
   if (toDelegate.length === 0) {
@@ -423,6 +451,22 @@ async function main() {
     '04_delegate_guessr_state.log',
     `program=${programId.toBase58()} delegated=${toDelegate.length} skipped=${skipped.length} singleTx=${result.usedSingleTx} signatures=${result.signatures.join(',')}`
   );
+
+  for (const spec of toDelegate) {
+    const playerBase58 = spec.player ? spec.player.toBase58() : '';
+    writeReport(
+      '04_delegate_guessr_state_pdas.log',
+      `delegated label=${spec.label} target=${spec.target} pda=${spec.pda.toBase58()} player=${playerBase58}`
+    );
+  }
+
+  for (const spec of skippedSpecs) {
+    const playerBase58 = spec.player ? spec.player.toBase58() : '';
+    writeReport(
+      '04_delegate_guessr_state_pdas.log',
+      `skipped label=${spec.label} target=${spec.target} pda=${spec.pda.toBase58()} player=${playerBase58}`
+    );
+  }
 }
 
 main().catch(error => {

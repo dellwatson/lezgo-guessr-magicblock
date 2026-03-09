@@ -49,10 +49,7 @@ pub fn claim_reward_handler(ctx: Context<ClaimReward>) -> Result<()> {
     };
 
     token::transfer(
-        CpiContext::new(
-            ctx.accounts.token_program.to_account_info(),
-            cpi_accounts,
-        ),
+        CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts),
         transfer_amount,
     )?;
 

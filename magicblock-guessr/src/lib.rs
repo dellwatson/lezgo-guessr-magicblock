@@ -8,7 +8,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("Fk4yAbdxhjC3MFHqC2FyyebUfNLPG8RasSeLFaJGT6vR");
+declare_id!("Cs16ovMuy7gBSJGSDRECLEso4v56PCMENGKWMjdbvECv");
 
 #[ephemeral]
 #[program]
@@ -33,24 +33,32 @@ pub mod guessr_multiplayer_program {
         )
     }
 
-    pub fn join_lobby(ctx: Context<JoinLobby>) -> Result<()> {
-        instructions::lobby::join_lobby_handler(ctx)
+    pub fn join_lobby(
+        ctx: Context<JoinLobby>,
+        wallet_address: Pubkey,
+        session_address: Pubkey,
+    ) -> Result<()> {
+        instructions::lobby::join_lobby_handler(ctx, wallet_address, session_address)
     }
 
-    pub fn heartbeat(ctx: Context<Heartbeat>) -> Result<()> {
-        instructions::lobby::heartbeat_handler(ctx)
+    pub fn heartbeat(ctx: Context<Heartbeat>, wallet_address: Pubkey) -> Result<()> {
+        instructions::lobby::heartbeat_handler(ctx, wallet_address)
     }
 
-    pub fn leave_lobby(ctx: Context<LeaveLobby>) -> Result<()> {
-        instructions::lobby::leave_lobby_handler(ctx)
+    pub fn leave_lobby(ctx: Context<LeaveLobby>, wallet_address: Pubkey) -> Result<()> {
+        instructions::lobby::leave_lobby_handler(ctx, wallet_address)
     }
 
-    pub fn enter_room(ctx: Context<EnterRoom>, room_id: [u8; 32]) -> Result<()> {
-        instructions::room::enter_room_handler(ctx, room_id)
+    pub fn enter_room(
+        ctx: Context<EnterRoom>,
+        wallet_address: Pubkey,
+        room_id: [u8; 32],
+    ) -> Result<()> {
+        instructions::room::enter_room_handler(ctx, wallet_address, room_id)
     }
 
-    pub fn clear_room(ctx: Context<ClearRoom>) -> Result<()> {
-        instructions::room::clear_room_handler(ctx)
+    pub fn clear_room(ctx: Context<ClearRoom>, wallet_address: Pubkey) -> Result<()> {
+        instructions::room::clear_room_handler(ctx, wallet_address)
     }
 
     pub fn prune_stale_player(ctx: Context<PruneStalePlayer>) -> Result<()> {
@@ -107,6 +115,7 @@ pub mod guessr_multiplayer_program {
 
     pub fn settle_duel_room(
         ctx: Context<SettleDuelRoom>,
+        wallet_address: Pubkey,
         room_id: [u8; 32],
         winner: Pubkey,
         is_draw: bool,
@@ -115,6 +124,7 @@ pub mod guessr_multiplayer_program {
     ) -> Result<()> {
         instructions::duel::settle_duel_room_handler(
             ctx,
+            wallet_address,
             room_id,
             winner,
             is_draw,
@@ -145,12 +155,17 @@ pub mod guessr_multiplayer_program {
         instructions::ranked::set_reward_mint_handler(ctx, reward_mint)
     }
 
-    pub fn open_ranked_room(ctx: Context<OpenRankedRoom>, challenge_hash: [u8; 32]) -> Result<()> {
-        instructions::ranked::open_ranked_room_handler(ctx, challenge_hash)
+    pub fn open_ranked_room(
+        ctx: Context<OpenRankedRoom>,
+        wallet_address: Pubkey,
+        challenge_hash: [u8; 32],
+    ) -> Result<()> {
+        instructions::ranked::open_ranked_room_handler(ctx, wallet_address, challenge_hash)
     }
 
     pub fn update_ranked_state(
         ctx: Context<UpdateRankedState>,
+        wallet_address: Pubkey,
         round_index: u16,
         hp_after: u16,
         distance_km: u32,
@@ -162,6 +177,7 @@ pub mod guessr_multiplayer_program {
     ) -> Result<()> {
         instructions::ranked::update_ranked_state_handler(
             ctx,
+            wallet_address,
             round_index,
             hp_after,
             distance_km,
@@ -173,12 +189,16 @@ pub mod guessr_multiplayer_program {
         )
     }
 
-    pub fn settle_ranked_room(ctx: Context<SettleRankedRoom>, score: u64) -> Result<()> {
-        instructions::ranked::settle_ranked_room_handler(ctx, score)
+    pub fn settle_ranked_room(
+        ctx: Context<SettleRankedRoom>,
+        wallet_address: Pubkey,
+        score: u64,
+    ) -> Result<()> {
+        instructions::ranked::settle_ranked_room_handler(ctx, wallet_address, score)
     }
 
-    pub fn close_ranked_room(ctx: Context<CloseRankedRoom>) -> Result<()> {
-        instructions::ranked::close_ranked_room_handler(ctx)
+    pub fn close_ranked_room(ctx: Context<CloseRankedRoom>, wallet_address: Pubkey) -> Result<()> {
+        instructions::ranked::close_ranked_room_handler(ctx, wallet_address)
     }
 
     pub fn create_reward_claim(

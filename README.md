@@ -6,6 +6,44 @@ This folder contains:
 - TypeScript scripts for initialization and flow tests
 - Shell scripts for ordered deploy flow
 
+## 📸 App Sneak Peek
+
+### Booking Flow
+
+<div align="center">
+  <img src="./sneakpeak/demo-homepage.png" alt="homepage" width="200" style="margin:4px" />
+  <img src="./sneakpeak/demo-flight-1.png" alt="Flight Booking Step 1" width="200" style="margin:4px" />
+  <img src="./sneakpeak/demo-flight-2.png" alt="Flight Booking Step 2" width="200" style="margin:4px" />
+  <img src="./sneakpeak/demo-flight-3.png" alt="Flight Booking Step 3" width="200" style="margin:4px" />
+  <img src="./sneakpeak/demo-hotel-1.png" alt="Hotel Booking Step 1" width="200" style="margin:4px" />
+  <img src="./sneakpeak/demo-hotel-2.png" alt="Hotel Booking Step 2" width="200" style="margin:4px" />
+  <p><em>Booking flow screenshots (portrait orientation)</em></p>
+</div>
+
+### Gameplay Flow
+
+<div align="center">
+  <img src="./sneakpeak/guessr-1.png" alt="Guessr Gameplay 1" width="200" style="margin:4px" />
+  <img src="./sneakpeak/guessr-2.png" alt="Guessr Gameplay 2" width="200" style="margin:4px" />
+  <img src="./sneakpeak/guessr-3.png" alt="Guessr Gameplay 3" width="200" style="margin:4px" />
+  <img src="./sneakpeak/guessr-4.png" alt="Guessr Gameplay 4" width="200" style="margin:4px" />
+  <img src="./sneakpeak/guessr-5.png" alt="Guessr Gameplay 5" width="200" style="margin:4px" />
+  <p><em>Guessr gameplay flow (portrait orientation)</em></p>
+</div>
+
+### Demo Video
+
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=W8mK0BOtXpw" target="_blank">
+    <img src="https://img.youtube.com/vi/W8mK0BOtXpw/0.jpg" alt="Demo Video Thumbnail" style="width:100%; max-width:560px; border-radius:8px;" />
+  </a>
+  <p><em>Click to watch the demo on YouTube</em></p>
+</div>
+
+**Download the app:** `https://drive.google.com/drive/folders/1Quz8pbWoJ02yKnW53zsGkfWWLcLVX3x-?usp=drive_link`
+
+---
+
 ## Prerequisites
 
 1. Install Solana CLI + `spl-token`

@@ -100,13 +100,19 @@
   - `PlayerStatus`, `PlayerLiveState`, `PlayerProfile`
   - `DuelRoom`, `RankedRoom`, `RewardClaim`
 - Delegation is still **one PDA per instruction** on-chain (SDK `#[delegate]` constraint), but client scripts can pack many delegation instructions in one transaction.
-- New script: `@programs/scripts/04_delegate_guessr_state.ts`
+- New script: `@programs/magicblock-guessr/scripts/04_delegate_guessr_state.ts`
   - Tries one-transaction delegation first.
   - Automatically splits into multiple transactions only when transaction size limits are hit.
   - Delegates all required existing PDAs from the configured global/player/duel/ranked/reward inputs.
 - Commit handler now commits:
   - Always: `LobbyState` + `RankedConfig`.
   - Plus: any additional writable PDAs passed via `remaining_accounts`.
-- New script: `@programs/scripts/05_commit_guessr_state.ts`
+- New script: `@programs/magicblock-guessr/scripts/05_commit_guessr_state.ts`
   - Tries committing all discovered existing PDAs in one transaction.
   - Automatically splits by account chunks if transaction-size limits are hit.
+
+- v1 pooling demo:
+  - New `room_pool` PDA (single pool for matchmaking signals).
+  - `room_pool` is a fixed-size ring buffer (room_id, wallet, session, status, slots, players, timestamp).
+  - Duel matchmaking uses `waiting (1/2) → joining (1/2) → confirmed (2/2)` entries.
+  - New `commit_pool_with_reward` magic-action commit for pooled flows (syncs ER state + mints SPL reward).

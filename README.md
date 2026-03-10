@@ -1,33 +1,13 @@
 # Guessr Programs (MagicBlock / Solana ER)
 
-This folder contains:
-
-- Rust on-chain program (single Guessr program: lobby + duel + ranked modules)
-- TypeScript scripts for initialization and flow tests
-- Shell scripts for ordered deploy flow
-
-## 📸 App Sneak Peek
-
-### Booking Flow
-
-<div align="center">
-  <img src="./sneakpeak/demo-homepage.png" alt="homepage" width="200" style="margin:4px" />
-  <img src="./sneakpeak/demo-flight-1.png" alt="Flight Booking Step 1" width="200" style="margin:4px" />
-  <img src="./sneakpeak/demo-flight-2.png" alt="Flight Booking Step 2" width="200" style="margin:4px" />
-  <img src="./sneakpeak/demo-flight-3.png" alt="Flight Booking Step 3" width="200" style="margin:4px" />
-  <img src="./sneakpeak/demo-hotel-1.png" alt="Hotel Booking Step 1" width="200" style="margin:4px" />
-  <img src="./sneakpeak/demo-hotel-2.png" alt="Hotel Booking Step 2" width="200" style="margin:4px" />
-  <p><em>Booking flow screenshots (portrait orientation)</em></p>
-</div>
-
 ### Gameplay Flow
 
 <div align="center">
   <img src="./sneakpeak/guessr-1.png" alt="Guessr Gameplay 1" width="200" style="margin:4px" />
   <img src="./sneakpeak/guessr-2.png" alt="Guessr Gameplay 2" width="200" style="margin:4px" />
+  <img src="./sneakpeak/guessr-5.png" alt="Guessr Gameplay 5" width="200" style="margin:4px" />
   <img src="./sneakpeak/guessr-3.png" alt="Guessr Gameplay 3" width="200" style="margin:4px" />
   <img src="./sneakpeak/guessr-4.png" alt="Guessr Gameplay 4" width="200" style="margin:4px" />
-  <img src="./sneakpeak/guessr-5.png" alt="Guessr Gameplay 5" width="200" style="margin:4px" />
   <p><em>Guessr gameplay flow (portrait orientation)</em></p>
 </div>
 
@@ -62,11 +42,14 @@ export SOLANA_PAYER_KEYPAIR="$HOME/.config/solana/id.json"
 
 Recommended: keep script-specific config in a local file:
 
+Note: v0 scripts live under `@programs/magicblock-guessr/scripts`, v1 (pooling demo)
+scripts live under `@programs/magicblock-guessr-v1/scripts`.
+
 ```bash
-cp @programs/scripts/.env.programs.example @programs/scripts/.env.programs
+cp @programs/magicblock-guessr/scripts/.env.programs.example @programs/magicblock-guessr/scripts/.env.programs
 # edit values, especially USER_A_KEYPAIR / USER_B_KEYPAIR / USER_C_KEYPAIR
 set -a
-source @programs/scripts/.env.programs
+source @programs/magicblock-guessr/scripts/.env.programs
 set +a
 ```
 
@@ -84,7 +67,7 @@ export PENALTY_THRESHOLD=420
 1. Create reward SPL mint + treasury token account
 
 ```bash
-./@programs/scripts/01_create_reward_mint.sh
+./@programs/magicblock-guessr/scripts/01_create_reward_mint.sh
 ```
 
 Copy/export the printed:
@@ -93,7 +76,7 @@ Copy/export the printed:
 2. Deploy shared Guessr program (multiplayer + ranked modules)
 
 ```bash
-./@programs/scripts/02_deploy_multiplayer_program.sh
+./@programs/magicblock-guessr/scripts/02_deploy_multiplayer_program.sh
 ```
 
 Copy/export the printed:
@@ -102,13 +85,13 @@ Copy/export the printed:
 3. Initialize full Guessr system (lobby + ranked config in one tx)
 
 ```bash
-bun run @programs/scripts/03_initialize_guessr_system.ts
+bun run @programs/magicblock-guessr/scripts/03_initialize_guessr_system.ts
 ```
 
 4. Delegate required Guessr PDAs to ER validators
 
 ```bash
-bun run @programs/scripts/04_delegate_guessr_state.ts
+bun run @programs/magicblock-guessr/scripts/04_delegate_guessr_state.ts
 ```
 
 The script sends all delegation instructions in one transaction when it fits.
@@ -126,7 +109,7 @@ export DELEGATE_REWARD_CLAIMS="<wallet>:<match-id>:0,<wallet>:<match-id>:1"
 5. Commit delegated PDAs from ER back to base layer
 
 ```bash
-bun run @programs/scripts/05_commit_guessr_state.ts
+bun run @programs/magicblock-guessr/scripts/05_commit_guessr_state.ts
 ```
 
 This script uses the same `DELEGATE_*` input envs as step 4 to discover dynamic PDAs.
@@ -137,7 +120,7 @@ It commits lobby/ranked config plus all discovered existing PDAs in one transact
 ```bash
 export NEXT_REWARD_MINT="<new-mint>"
 export NEXT_REWARD_TREASURY_TOKEN_ACCOUNT="<new-treasury-token-account>"
-bun run @programs/scripts/06_set_ranked_reward_mint.ts
+bun run @programs/magicblock-guessr/scripts/06_set_ranked_reward_mint.ts
 ```
 
 7. Test multiplayer A/B flow (join lobby -> enter room -> heartbeat)
@@ -149,26 +132,26 @@ solana-keygen new --no-bip39-passphrase --force -o @programs/keys/user-c.json
 export USER_A_KEYPAIR="@programs/keys/user-a.json"
 export USER_B_KEYPAIR="@programs/keys/user-b.json"
 export USER_C_KEYPAIR="@programs/keys/user-c.json"
-bun run @programs/scripts/07_test_multiplayer_room_flow.ts
+bun run @programs/magicblock-guessr/scripts/07_test_multiplayer_room_flow.ts
 ```
 
 8. Presence sequence test (A -> B -> C and online count increments)
 
 ```bash
-bun run @programs/scripts/08_lobby_presence_sequence.ts
+bun run @programs/magicblock-guessr/scripts/08_lobby_presence_sequence.ts
 ```
 
 9. Duel simulation (A and B join lobby, enter same room, heartbeat, clear room)
 
 ```bash
-bun run @programs/scripts/09_duel_simulation.ts
+bun run @programs/magicblock-guessr/scripts/09_duel_simulation.ts
 ```
 
 10. Ranked solo simulation (open room -> per-action update tx -> settle -> close, checks SPL balance delta)
 
 ```bash
 export RANKED_TEST_SCORE=500
-bun run @programs/scripts/10_ranked_solo_simulation.ts
+bun run @programs/magicblock-guessr/scripts/10_ranked_solo_simulation.ts
 ```
 
 ## Matchmaking Execution
@@ -194,6 +177,15 @@ EXPO_PUBLIC_MWA_APP_NAME="lezgo Guessr"
 EXPO_PUBLIC_MWA_APP_URI="https://dev.lezgo.app"
 EXPO_PUBLIC_MWA_APP_ICON="https://lezgo.app/static/icons/guessr-wallet-icon.png"
 ```
+
+## v1 Pooling Demo (magicblock-guessr-v1)
+
+- v1 removes per-room PDAs and uses a single `room_pool` PDA for matchmaking signals.
+- `room_pool` stores a fixed-size ring buffer of entries: `room_id`, `wallet`, `session`, `status`, `slot (filled/total)`, `players[2]`, `timestamp`.
+- Duel flow: host writes `waiting (1/2)`, joiner writes `joining (1/2)`, host confirms `confirmed (2/2)`. Ranked-solo uses `confirmed (1/1)` and skips joining.
+- Per-user PDAs are created on base by the session key (`join_lobby`) and used on ER after delegation.
+- End-of-game uses a new `commit_pool_with_reward` magic-action commit to sync ER state back to base and mint SPL rewards (mint amount supplied by client for demo).
+- v1 scripts live at `@programs/magicblock-guessr-v1/scripts`.
 
 ## Program Crates
 

@@ -8,6 +8,7 @@ skip-lint = false
 
 [programs.localnet]
 guessr_multiplayer_program = "CfPuWQFYKNdTMDsj1iEZWoVnMp3aa9auKyAzZd9k1hg4"
+MFSqZcmLpW5K4YzcyQbvXW31A3D68tv4ArdZqYQYzZD"
 
 [registry]
 url = "https://api.apr.dev"

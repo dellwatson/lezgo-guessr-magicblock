@@ -1,4 +1,4 @@
-import { PublicKey, SystemProgram, TransactionInstruction } from '@solana/web3.js';
+import { PublicKey, TransactionInstruction } from '@solana/web3.js';
 import {
   anchorDiscriminator,
   concatBinary,
@@ -7,10 +7,13 @@ import {
   loadUserKeypairFromEnv,
   requireEnv,
   resolveGuessrProgramId,
-  sendInstructions,
+  sendInstruction,
   toFixedBytes32,
   writeReport,
 } from './_shared';
+
+const MAGIC_PROGRAM_ID = new PublicKey('Magic11111111111111111111111111111111111111');
+const MAGIC_CONTEXT_ID = new PublicKey('MagicContext1111111111111111111111111111111');
 
 const LOBBY_STATE_SEED = new TextEncoder().encode('lobby-state');
 const RANKED_CONFIG_SEED = new TextEncoder().encode('ranked-config');
@@ -23,46 +26,13 @@ const ROOM_ID_SEED = new TextEncoder().encode('room-id');
 const DUEL_ROOM_SEED = new TextEncoder().encode('duel-room');
 const RANKED_ROOM_SEED = new TextEncoder().encode('ranked-room');
 const REWARD_CLAIM_SEED = new TextEncoder().encode('reward-claim');
-const DELEGATE_BUFFER_TAG = new TextEncoder().encode('buffer');
-const DELEGATION_RECORD_TAG = new TextEncoder().encode('delegation');
-const DELEGATION_METADATA_TAG = new TextEncoder().encode('delegation-metadata');
-const DEFAULT_MAGICBLOCK_VALIDATOR = 'MUS3hc9TCw4cGC12vHNoYcCGzJG1txjgQLZWVoenHNd';
-const DEFAULT_DELEGATION_PROGRAM_ID = 'DELeGGvXpWV2fqJUhqcF5ZSYMS4JTLjteaAMARRSaeSh';
-
-const DELEGATE_TARGET_LOBBY_STATE = 0;
-const DELEGATE_TARGET_RANKED_CONFIG = 1;
-const DELEGATE_TARGET_PLAYER_STATUS = 2;
-const DELEGATE_TARGET_PLAYER_LIVE_STATE = 3;
-const DELEGATE_TARGET_PLAYER_PROFILE = 4;
-const DELEGATE_TARGET_DUEL_ROOM = 5;
-const DELEGATE_TARGET_RANKED_ROOM = 6;
-const DELEGATE_TARGET_REWARD_CLAIM = 7;
-const DELEGATE_TARGET_LEADERBOARD = 8;
-const DELEGATE_TARGET_PLAYER_REWARDS = 9;
 
 const MATCH_MODE_DUEL = 0;
 const MATCH_MODE_RANKED_SOLO = 1;
 
-type DelegationTarget =
-  | typeof DELEGATE_TARGET_LOBBY_STATE
-  | typeof DELEGATE_TARGET_RANKED_CONFIG
-  | typeof DELEGATE_TARGET_PLAYER_STATUS
-  | typeof DELEGATE_TARGET_PLAYER_LIVE_STATE
-  | typeof DELEGATE_TARGET_PLAYER_PROFILE
-  | typeof DELEGATE_TARGET_DUEL_ROOM
-  | typeof DELEGATE_TARGET_RANKED_ROOM
-  | typeof DELEGATE_TARGET_REWARD_CLAIM
-  | typeof DELEGATE_TARGET_LEADERBOARD
-  | typeof DELEGATE_TARGET_PLAYER_REWARDS;
-
-type DelegationSpec = {
+type CommitSpec = {
   label: string;
-  target: DelegationTarget;
   pda: PublicKey;
-  player?: PublicKey;
-  roomOrMatchId?: Uint8Array;
-  mode?: number;
-  required?: boolean;
 };
 
 type RewardClaimInput = {
@@ -88,32 +58,6 @@ function tryParsePublicKey(value: string) {
   } catch {
     return null;
   }
-}
-
-function resolveMagicblockValidator() {
-  const raw = process.env.MAGICBLOCK_VALIDATOR;
-  if (raw && raw.trim().length > 0) {
-    const parsed = tryParsePublicKey(raw.trim());
-    if (!parsed) {
-      throw new Error(`Invalid MAGICBLOCK_VALIDATOR: ${raw}`);
-    }
-    return parsed;
-  }
-
-  return new PublicKey(DEFAULT_MAGICBLOCK_VALIDATOR);
-}
-
-function resolveDelegationProgramId() {
-  const raw = process.env.DELEGATION_PROGRAM_ID;
-  if (raw && raw.trim().length > 0) {
-    const parsed = tryParsePublicKey(raw.trim());
-    if (!parsed) {
-      throw new Error(`Invalid DELEGATION_PROGRAM_ID: ${raw}`);
-    }
-    return parsed;
-  }
-
-  return new PublicKey(DEFAULT_DELEGATION_PROGRAM_ID);
 }
 
 function parseRewardClaimInputs(value: string | undefined) {
@@ -185,8 +129,8 @@ function collectPlayerWallets(payer: PublicKey) {
   return players;
 }
 
-function addSpec(store: Map<string, DelegationSpec>, spec: DelegationSpec) {
-  const key = `${spec.target}:${spec.pda.toBase58()}`;
+function addSpec(store: Map<string, CommitSpec>, spec: CommitSpec) {
+  const key = spec.pda.toBase58();
   if (!store.has(key)) {
     store.set(key, spec);
   }
@@ -205,49 +149,32 @@ function parseRoomIdBytes(roomIdOrAddress: string, programId: PublicKey) {
   return derivedRoomAddress.toBytes();
 }
 
-function buildDelegateInstruction(params: {
+function buildCommitInstruction(params: {
   programId: PublicKey;
-  payer: PublicKey;
-  spec: DelegationSpec;
-  validator: PublicKey;
-  delegationProgramId: PublicKey;
+  payer: ReturnType<typeof loadKeypair>;
+  lobbyStatePda: PublicKey;
+  rankedConfigPda: PublicKey;
+  leaderboardPda: PublicKey;
+  extraTargets: CommitSpec[];
 }) {
-  const player = params.spec.player ?? PublicKey.default;
-  const roomOrMatchId = params.spec.roomOrMatchId ?? new Uint8Array(32);
-  const mode = params.spec.mode ?? 0;
-  const [bufferPda] = PublicKey.findProgramAddressSync(
-    [DELEGATE_BUFFER_TAG, params.spec.pda.toBytes()],
-    params.programId
-  );
-  const [delegationRecordPda] = PublicKey.findProgramAddressSync(
-    [DELEGATION_RECORD_TAG, params.spec.pda.toBytes()],
-    params.delegationProgramId
-  );
-  const [delegationMetadataPda] = PublicKey.findProgramAddressSync(
-    [DELEGATION_METADATA_TAG, params.spec.pda.toBytes()],
-    params.delegationProgramId
-  );
+  const keys = [
+    { pubkey: params.payer.publicKey, isSigner: true, isWritable: true },
+    { pubkey: params.lobbyStatePda, isSigner: false, isWritable: true },
+    { pubkey: params.rankedConfigPda, isSigner: false, isWritable: true },
+    { pubkey: params.leaderboardPda, isSigner: false, isWritable: true },
+    { pubkey: MAGIC_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: MAGIC_CONTEXT_ID, isSigner: false, isWritable: true },
+    ...params.extraTargets.map(target => ({
+      pubkey: target.pda,
+      isSigner: false,
+      isWritable: true,
+    })),
+  ];
 
   return new TransactionInstruction({
     programId: params.programId,
-    keys: [
-      { pubkey: params.payer, isSigner: true, isWritable: true },
-      { pubkey: bufferPda, isSigner: false, isWritable: true },
-      { pubkey: delegationRecordPda, isSigner: false, isWritable: true },
-      { pubkey: delegationMetadataPda, isSigner: false, isWritable: true },
-      { pubkey: params.spec.pda, isSigner: false, isWritable: true },
-      { pubkey: params.programId, isSigner: false, isWritable: false },
-      { pubkey: params.delegationProgramId, isSigner: false, isWritable: false },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: params.validator, isSigner: false, isWritable: false },
-    ],
-    data: concatBinary([
-      anchorDiscriminator('delegate_guessr_state'),
-      Uint8Array.from([params.spec.target]),
-      player.toBytes(),
-      roomOrMatchId,
-      Uint8Array.from([mode]),
-    ]),
+    keys,
+    data: concatBinary([anchorDiscriminator('commit_guessr_state')]),
   });
 }
 
@@ -268,50 +195,59 @@ function isLikelyTransactionSizeError(error: unknown) {
   );
 }
 
-async function sendWithFallback(
-  instructions: TransactionInstruction[],
-  payer: ReturnType<typeof loadKeypair>
-): Promise<{ signatures: string[]; usedSingleTx: boolean }> {
-  if (instructions.length === 0) {
-    return { signatures: [], usedSingleTx: true };
-  }
-
+async function sendCommitWithFallback(params: {
+  connection: ReturnType<typeof getConnection>;
+  payer: ReturnType<typeof loadKeypair>;
+  programId: PublicKey;
+  lobbyStatePda: PublicKey;
+  rankedConfigPda: PublicKey;
+  leaderboardPda: PublicKey;
+  extraTargets: CommitSpec[];
+}): Promise<{ signatures: string[]; usedSingleTx: boolean }> {
   try {
-    const signature = await sendInstructions({ payer, instructions });
+    const signature = await sendInstruction({
+      connection: params.connection,
+      payer: params.payer,
+      instruction: buildCommitInstruction(params),
+    });
     return { signatures: [signature], usedSingleTx: true };
   } catch (error) {
-    if (!isLikelyTransactionSizeError(error) || instructions.length === 1) {
+    if (!isLikelyTransactionSizeError(error) || params.extraTargets.length <= 1) {
       throw error;
     }
   }
 
-  const signatures = await sendChunked(instructions, payer);
+  const signatures = await sendCommitChunked(params);
   return { signatures, usedSingleTx: false };
 }
 
-async function sendChunked(
-  instructions: TransactionInstruction[],
-  payer: ReturnType<typeof loadKeypair>
-): Promise<string[]> {
-  if (instructions.length === 0) {
-    return [];
-  }
-
+async function sendCommitChunked(params: {
+  connection: ReturnType<typeof getConnection>;
+  payer: ReturnType<typeof loadKeypair>;
+  programId: PublicKey;
+  lobbyStatePda: PublicKey;
+  rankedConfigPda: PublicKey;
+  leaderboardPda: PublicKey;
+  extraTargets: CommitSpec[];
+}): Promise<string[]> {
   try {
-    const signature = await sendInstructions({ payer, instructions });
+    const signature = await sendInstruction({
+      connection: params.connection,
+      payer: params.payer,
+      instruction: buildCommitInstruction(params),
+    });
     return [signature];
   } catch (error) {
-    if (!isLikelyTransactionSizeError(error) || instructions.length === 1) {
+    if (!isLikelyTransactionSizeError(error) || params.extraTargets.length <= 1) {
       throw error;
     }
   }
 
-  const midpoint = Math.ceil(instructions.length / 2);
-  const left = instructions.slice(0, midpoint);
-  const right = instructions.slice(midpoint);
-  const leftSignatures = await sendChunked(left, payer);
-  const rightSignatures = await sendChunked(right, payer);
-
+  const midpoint = Math.ceil(params.extraTargets.length / 2);
+  const left = params.extraTargets.slice(0, midpoint);
+  const right = params.extraTargets.slice(midpoint);
+  const leftSignatures = await sendCommitChunked({ ...params, extraTargets: left });
+  const rightSignatures = await sendCommitChunked({ ...params, extraTargets: right });
   return [...leftSignatures, ...rightSignatures];
 }
 
@@ -319,33 +255,25 @@ async function main() {
   const connection = getConnection();
   const payer = loadKeypair(requireEnv('SOLANA_PAYER_KEYPAIR'));
   const programId = resolveGuessrProgramId();
-  const validator = resolveMagicblockValidator();
-  const delegationProgramId = resolveDelegationProgramId();
   const players = collectPlayerWallets(payer.publicKey);
-  const specs = new Map<string, DelegationSpec>();
+  const specs = new Map<string, CommitSpec>();
 
   const [lobbyStatePda] = PublicKey.findProgramAddressSync([LOBBY_STATE_SEED], programId);
   const [rankedConfigPda] = PublicKey.findProgramAddressSync([RANKED_CONFIG_SEED], programId);
   const [leaderboardPda] = PublicKey.findProgramAddressSync([LEADERBOARD_SEED], programId);
 
-  addSpec(specs, {
-    label: 'lobby-state',
-    target: DELEGATE_TARGET_LOBBY_STATE,
-    pda: lobbyStatePda,
-    required: true,
-  });
-  addSpec(specs, {
-    label: 'ranked-config',
-    target: DELEGATE_TARGET_RANKED_CONFIG,
-    pda: rankedConfigPda,
-    required: true,
-  });
-  addSpec(specs, {
-    label: 'leaderboard',
-    target: DELEGATE_TARGET_LEADERBOARD,
-    pda: leaderboardPda,
-    required: true,
-  });
+  const lobbyInfo = await connection.getAccountInfo(lobbyStatePda, 'confirmed');
+  const rankedInfo = await connection.getAccountInfo(rankedConfigPda, 'confirmed');
+  const leaderboardInfo = await connection.getAccountInfo(leaderboardPda, 'confirmed');
+  if (!lobbyInfo) {
+    throw new Error(`Required PDA not found: lobby-state (${lobbyStatePda.toBase58()})`);
+  }
+  if (!rankedInfo) {
+    throw new Error(`Required PDA not found: ranked-config (${rankedConfigPda.toBase58()})`);
+  }
+  if (!leaderboardInfo) {
+    throw new Error(`Required PDA not found: leaderboard (${leaderboardPda.toBase58()})`);
+  }
 
   for (const player of players) {
     const [playerStatusPda] = PublicKey.findProgramAddressSync(
@@ -367,27 +295,19 @@ async function main() {
 
     addSpec(specs, {
       label: `player-status:${player.toBase58()}`,
-      target: DELEGATE_TARGET_PLAYER_STATUS,
       pda: playerStatusPda,
-      player,
     });
     addSpec(specs, {
       label: `player-live-state:${player.toBase58()}`,
-      target: DELEGATE_TARGET_PLAYER_LIVE_STATE,
       pda: playerLiveStatePda,
-      player,
     });
     addSpec(specs, {
       label: `player-profile:${player.toBase58()}`,
-      target: DELEGATE_TARGET_PLAYER_PROFILE,
       pda: playerProfilePda,
-      player,
     });
     addSpec(specs, {
       label: `player-rewards:${player.toBase58()}`,
-      target: DELEGATE_TARGET_PLAYER_REWARDS,
       pda: playerRewardsPda,
-      player,
     });
   }
 
@@ -405,9 +325,7 @@ async function main() {
     );
     addSpec(specs, {
       label: `duel-room:${roomIdOrAddress}`,
-      target: DELEGATE_TARGET_DUEL_ROOM,
       pda: duelRoomPda,
-      roomOrMatchId: roomIdBytes,
     });
   }
 
@@ -415,7 +333,6 @@ async function main() {
     ...parseCsv(process.env.DELEGATE_RANKED_CHALLENGES),
     ...parseCsv(process.env.RANKED_CHALLENGE_ID),
   ];
-
   for (const player of players) {
     for (const challengeId of rankedChallenges) {
       const challengeHash = toFixedBytes32(challengeId);
@@ -425,10 +342,7 @@ async function main() {
       );
       addSpec(specs, {
         label: `ranked-room:${player.toBase58()}:${challengeId}`,
-        target: DELEGATE_TARGET_RANKED_ROOM,
         pda: rankedRoomPda,
-        player,
-        roomOrMatchId: challengeHash,
       });
     }
   }
@@ -441,11 +355,7 @@ async function main() {
     );
     addSpec(specs, {
       label: `reward-claim:${claim.player.toBase58()}:${claim.mode}`,
-      target: DELEGATE_TARGET_REWARD_CLAIM,
       pda: rewardClaimPda,
-      player: claim.player,
-      roomOrMatchId: claim.matchId,
-      mode: claim.mode,
     });
   }
 
@@ -457,72 +367,43 @@ async function main() {
     }))
   );
 
-  const toDelegate: DelegationSpec[] = [];
+  const extraTargets: CommitSpec[] = [];
   const skipped: string[] = [];
-  const skippedSpecs: DelegationSpec[] = [];
-
   for (const item of accountInfos) {
     if (item.account) {
-      toDelegate.push(item.spec);
-      continue;
+      extraTargets.push(item.spec);
+    } else {
+      skipped.push(item.spec.label);
     }
-
-    if (item.spec.required) {
-      throw new Error(`Required PDA not found: ${item.spec.label} (${item.spec.pda.toBase58()})`);
-    }
-
-    skipped.push(item.spec.label);
-    skippedSpecs.push(item.spec);
   }
 
-  if (toDelegate.length === 0) {
-    throw new Error('No existing PDAs found to delegate.');
-  }
-
-  const instructions = toDelegate.map(spec =>
-    buildDelegateInstruction({
-      programId,
-      payer: payer.publicKey,
-      spec,
-      validator,
-      delegationProgramId,
-    })
-  );
-
-  const result = await sendWithFallback(instructions, payer);
+  const result = await sendCommitWithFallback({
+    connection,
+    payer,
+    programId,
+    lobbyStatePda,
+    rankedConfigPda,
+    leaderboardPda,
+    extraTargets,
+  });
 
   console.log('Program:', programId.toBase58());
-  console.log('Delegated PDAs:', toDelegate.length);
+  console.log('Committed global PDAs: 3');
+  console.log('Committed additional PDAs:', extraTargets.length);
   console.log('Skipped missing PDAs:', skipped.length);
   if (result.usedSingleTx) {
-    console.log('Delegation completed in one transaction');
+    console.log('Commit completed in one transaction');
   } else {
-    console.log(`Delegation required ${result.signatures.length} transactions`);
+    console.log(`Commit required ${result.signatures.length} transactions`);
   }
   for (const [index, signature] of result.signatures.entries()) {
     console.log(`Signature ${index + 1}:`, signature);
   }
 
   writeReport(
-    '04_delegate_guessr_state.log',
-    `program=${programId.toBase58()} delegated=${toDelegate.length} skipped=${skipped.length} singleTx=${result.usedSingleTx} signatures=${result.signatures.join(',')}`
+    '05_commit_guessr_state.log',
+    `program=${programId.toBase58()} committedGlobal=3 committedExtra=${extraTargets.length} skipped=${skipped.length} singleTx=${result.usedSingleTx} signatures=${result.signatures.join(',')}`
   );
-
-  for (const spec of toDelegate) {
-    const playerBase58 = spec.player ? spec.player.toBase58() : '';
-    writeReport(
-      '04_delegate_guessr_state_pdas.log',
-      `delegated label=${spec.label} target=${spec.target} pda=${spec.pda.toBase58()} player=${playerBase58}`
-    );
-  }
-
-  for (const spec of skippedSpecs) {
-    const playerBase58 = spec.player ? spec.player.toBase58() : '';
-    writeReport(
-      '04_delegate_guessr_state_pdas.log',
-      `skipped label=${spec.label} target=${spec.target} pda=${spec.pda.toBase58()} player=${playerBase58}`
-    );
-  }
 }
 
 main().catch(error => {

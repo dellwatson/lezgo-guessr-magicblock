@@ -3,54 +3,41 @@
 echo "🚀 Solana Program Build Script"
 echo "=============================="
 
-cd magicblock-guessr
-
-echo "📋 Current Rust version:"
-rustc --version
-cargo --version
-
-echo ""
-echo "🔧 Trying cargo build-sbf..."
-
-# Try building with cargo build-sbf
-if cargo build-sbf 2>&1; then
-    echo "✅ Build successful with cargo build-sbf!"
-    
-    # Copy artifacts if they exist
-    if [ -f "target/deploy/guessr_multiplayer_program.so" ]; then
-        cp target/deploy/guessr_multiplayer_program.so ../artifacts/
-        echo "✅ Artifact copied to artifacts/"
-    elif [ -f "target/release/libguessr_multiplayer_program.so" ]; then
-        cp target/release/libguessr_multiplayer_program.so ../artifacts/
-        echo "✅ Artifact copied to artifacts/"
-    else
-        echo "⚠️  Build succeeded but no .so file found"
-        find target -name "*.so" -o -name "*.dylib" | head -5
-    fi
-else
-    echo "❌ cargo build-sbf failed"
-    
+# Function to show usage
+show_usage() {
+    echo "Usage: $0 [version]"
     echo ""
-    echo "🔧 Trying regular cargo build..."
-    
-    # Fallback to regular cargo build
-    if cargo build --release; then
-        echo "✅ Regular build successful!"
-        
-        if [ -f "target/release/libguessr_multiplayer_program.dylib" ]; then
-            cp target/release/libguessr_multiplayer_program.dylib ../artifacts/guessr_multiplayer_program.so
-            echo "✅ Copied dylib as .so file (for testing only)"
-        fi
-    else
-        echo "❌ Regular build also failed"
-    fi
-fi
+    echo "Versions:"
+    echo "  magicblock-guessr  (default) - Build the current version"
+    echo "  magicblock-guessr-v1         - Build the v1 version"
+    echo ""
+    echo "Examples:"
+    echo "  $0                # Build magicblock-guessr"
+    echo "  $0 magicblock-guessr     # Build magicblock-guessr"
+    echo "  $0 magicblock-guessr-v1  # Build magicblock-guessr-v1"
+}
 
-echo ""
-echo "📦 Artifacts in artifacts directory:"
-ls -la ../artifacts/ 2>/dev/null || echo "No artifacts directory"
+# Determine which version to build
+VERSION=${1:-magicblock-guessr}
 
-echo ""
-echo "🐳 To try Docker build:"
-echo "cd .. && docker build -t solana-guessr-builder ."
-echo "docker run -it --rm -v \$(pwd)/artifacts:/app/artifacts solana-guessr-builder"
+case $VERSION in
+    "magicblock-guessr")
+        echo "� Building magicblock-guessr..."
+        cd magicblock-guessr
+        ./build.sh
+        ;;
+    "magicblock-guessr-v1")
+        echo "📦 Building magicblock-guessr-v1..."
+        cd magicblock-guessr-v1
+        ./build.sh
+        ;;
+    "help"|"-h"|"--help")
+        show_usage
+        exit 0
+        *)
+        echo "❌ Unknown version: $VERSION"
+        echo ""
+        show_usage
+        exit 1
+        ;;
+esac

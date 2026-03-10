@@ -2,13 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROGRAMS_ROOT="$(cd "$ROOT_DIR/.." && pwd)"
 SOLANA_RPC_URL="${SOLANA_RPC_URL:-https://api.devnet.solana.com}"
 SOLANA_PAYER_KEYPAIR="${SOLANA_PAYER_KEYPAIR:-$HOME/.config/solana/id.json}"
-MULTIPLAYER_PROGRAM_KEYPAIR="${MULTIPLAYER_PROGRAM_KEYPAIR:-$ROOT_DIR/artifacts/guessr_multiplayer_program_keypair.json}"
-PROGRAM_CRATE_DIR="$ROOT_DIR/magicblock-guessr"
-ARTIFACT_DIR="$ROOT_DIR/artifacts"
+MULTIPLAYER_PROGRAM_KEYPAIR="${MULTIPLAYER_PROGRAM_KEYPAIR:-$PROGRAMS_ROOT/artifacts/guessr_multiplayer_program_keypair.json}"
+PROGRAM_CRATE_DIR="$ROOT_DIR"
+ARTIFACT_DIR="$PROGRAMS_ROOT/artifacts"
 
-mkdir -p "$ROOT_DIR/keys" "$ARTIFACT_DIR"
+mkdir -p "$PROGRAMS_ROOT/keys" "$ARTIFACT_DIR"
 
 if [[ ! -f "$MULTIPLAYER_PROGRAM_KEYPAIR" ]]; then
   solana-keygen new --no-bip39-passphrase --force -o "$MULTIPLAYER_PROGRAM_KEYPAIR" >/dev/null

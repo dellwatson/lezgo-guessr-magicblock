@@ -3,7 +3,7 @@ set -euo pipefail
 
 # This script creates a new SPL token mint and a treasury token account on devnet.
 # It writes the mint and treasury token account pubkeys to:
-#   - @programs/reports/01_reward_mint.log
+#   - @programs/magicblock-guessr/reports/01_reward_mint.log
 #   - stdout (for easy copy-paste into .env)
 #
 # It does NOT set mint authority to the program; use 01_set_reward_mint_authority.ts after this.

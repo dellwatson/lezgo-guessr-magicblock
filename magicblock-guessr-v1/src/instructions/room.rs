@@ -18,7 +18,7 @@ pub fn enter_room_handler(
     player_b: Pubkey,
 ) -> Result<()> {
     let player_status = &mut ctx.accounts.player_status;
-    let room_pool = &mut ctx.accounts.room_pool;
+    let mut room_pool = ctx.accounts.room_pool.load_mut()?;
     ensure_wallet_matches_status(player_status, wallet_address)?;
     ensure_player_authority(player_status, ctx.accounts.authority.key())?;
     let now = Clock::get()?.unix_timestamp;
@@ -30,13 +30,14 @@ pub fn enter_room_handler(
 
     room_pool.push_entry(RoomPoolEntry {
         room_id,
-        wallet: player_status.player,
-        session: ctx.accounts.authority.key(),
+        wallet: player_status.player.to_bytes(),
+        session: ctx.accounts.authority.key().to_bytes(),
         status,
         slot_filled,
         slot_total,
         match_mode,
-        players: [player_a, player_b],
+        players: [player_a.to_bytes(), player_b.to_bytes()],
+        padding: [0; 4],
         last_update_ts: now,
     });
 
@@ -45,7 +46,7 @@ pub fn enter_room_handler(
 
 pub fn clear_room_handler(ctx: Context<ClearRoom>, wallet_address: Pubkey) -> Result<()> {
     let player_status = &mut ctx.accounts.player_status;
-    let room_pool = &mut ctx.accounts.room_pool;
+    let mut room_pool = ctx.accounts.room_pool.load_mut()?;
     ensure_wallet_matches_status(player_status, wallet_address)?;
     ensure_player_authority(player_status, ctx.accounts.authority.key())?;
     let now = Clock::get()?.unix_timestamp;
@@ -54,13 +55,14 @@ pub fn clear_room_handler(ctx: Context<ClearRoom>, wallet_address: Pubkey) -> Re
 
     room_pool.push_entry(RoomPoolEntry {
         room_id,
-        wallet: player_status.player,
-        session: ctx.accounts.authority.key(),
+        wallet: player_status.player.to_bytes(),
+        session: ctx.accounts.authority.key().to_bytes(),
         status: ROOM_STATUS_CLEARED,
         slot_filled: 0,
         slot_total: 0,
         match_mode: 0,
-        players: [player_status.player, Pubkey::default()],
+        players: [player_status.player.to_bytes(), Pubkey::default().to_bytes()],
+        padding: [0; 4],
         last_update_ts: now,
     });
 
@@ -91,9 +93,9 @@ pub struct EnterRoom<'info> {
     #[account(
         mut,
         seeds = [b"room-pool"],
-        bump = room_pool.bump
+        bump
     )]
-    pub room_pool: Account<'info, RoomPool>,
+    pub room_pool: AccountLoader<'info, RoomPool>,
     pub system_program: Program<'info, System>,
 }
 
@@ -112,7 +114,7 @@ pub struct ClearRoom<'info> {
     #[account(
         mut,
         seeds = [b"room-pool"],
-        bump = room_pool.bump
+        bump
     )]
-    pub room_pool: Account<'info, RoomPool>,
+    pub room_pool: AccountLoader<'info, RoomPool>,
 }

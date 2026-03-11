@@ -3,7 +3,7 @@ use anchor_spl::token::TokenAccount;
 
 use crate::constants::{LEADERBOARD_SPACE, LOBBY_STATE_SPACE, RANKED_CONFIG_SPACE, ROOM_POOL_SPACE};
 use crate::error::GuessrError;
-use crate::state::{LeaderboardState, LobbyState, RankedConfig, RoomPool, RoomPoolEntry};
+use crate::state::{LeaderboardState, LobbyState, RankedConfig, RoomPool};
 
 pub fn initialize_system_handler(
     ctx: Context<InitializeSystem>,
@@ -39,10 +39,9 @@ pub fn initialize_system_handler(
     config.bump = ctx.bumps.ranked_config;
     config.reserved = [0; 13];
 
-    let room_pool = &mut ctx.accounts.room_pool;
+    let mut room_pool = ctx.accounts.room_pool.load_init()?;
     room_pool.write_index = 0;
     room_pool.entry_count = 0;
-    room_pool.entries = [RoomPoolEntry::default(); crate::constants::ROOM_POOL_MAX_ENTRIES];
     room_pool.bump = ctx.bumps.room_pool;
     room_pool.reserved = [0; 7];
 
@@ -50,9 +49,8 @@ pub fn initialize_system_handler(
 }
 
 pub fn initialize_leaderboard_handler(ctx: Context<InitializeLeaderboard>) -> Result<()> {
-    ctx.accounts
-        .leaderboard
-        .reset(ctx.bumps.leaderboard, Clock::get()?.unix_timestamp);
+    let mut leaderboard = ctx.accounts.leaderboard.load_init()?;
+    leaderboard.reset(ctx.bumps.leaderboard, Clock::get()?.unix_timestamp);
     Ok(())
 }
 
@@ -83,7 +81,7 @@ pub struct InitializeSystem<'info> {
         seeds = [b"room-pool"],
         bump
     )]
-    pub room_pool: Account<'info, RoomPool>,
+    pub room_pool: AccountLoader<'info, RoomPool>,
     pub reward_mint: UncheckedAccount<'info>,
     #[account(
         mut,
@@ -113,6 +111,6 @@ pub struct InitializeLeaderboard<'info> {
         seeds = [b"leaderboard"],
         bump
     )]
-    pub leaderboard: Box<Account<'info, LeaderboardState>>,
+    pub leaderboard: AccountLoader<'info, LeaderboardState>,
     pub system_program: Program<'info, System>,
 }

@@ -16,11 +16,13 @@ if cargo build-sbf 2>&1; then
     
     # Copy artifacts if they exist
     if [ -f "target/deploy/guessr_multiplayer_program_v1.so" ]; then
-        cp target/deploy/guessr_multiplayer_program_v1.so ../artifacts/
-        echo "✅ Artifact copied to artifacts/"
+        mkdir -p artifacts
+        cp target/deploy/guessr_multiplayer_program_v1.so artifacts/
+        echo "✅ Artifact copied to ./artifacts/"
     elif [ -f "target/release/libguessr_multiplayer_program_v1.so" ]; then
-        cp target/release/libguessr_multiplayer_program_v1.so ../artifacts/
-        echo "✅ Artifact copied to artifacts/"
+        mkdir -p artifacts
+        cp target/release/libguessr_multiplayer_program_v1.so artifacts/
+        echo "✅ Artifact copied to ./artifacts/"
     else
         echo "⚠️  Build succeeded but no .so file found"
         find target -name "*.so" -o -name "*.dylib" | head -5
@@ -36,8 +38,9 @@ else
         echo "✅ Regular build successful!"
         
         if [ -f "target/release/libguessr_multiplayer_program_v1.dylib" ]; then
-            cp target/release/libguessr_multiplayer_program_v1.dylib ../artifacts/guessr_multiplayer_program_v1.so
-            echo "✅ Copied dylib as .so file (for testing only)"
+            mkdir -p artifacts
+            cp target/release/libguessr_multiplayer_program_v1.dylib artifacts/guessr_multiplayer_program_v1.so
+            echo "✅ Copied dylib as .so file (for testing only) to ./artifacts/"
         fi
     else
         echo "❌ Regular build also failed"
@@ -46,9 +49,9 @@ fi
 
 echo ""
 echo "📦 Artifacts in artifacts directory:"
-ls -la ../artifacts/ 2>/dev/null || echo "No artifacts directory"
+ls -la artifacts/ 2>/dev/null || echo "No artifacts directory"
 
 echo ""
 echo "🐳 To try Docker build:"
-echo "cd .. && docker build -t solana-guessr-builder ."
+echo "docker build -t solana-guessr-builder ."
 echo "docker run -it --rm -v \$(pwd)/artifacts:/app/artifacts solana-guessr-builder"

@@ -424,9 +424,9 @@ pub struct CommitGuessrState<'info> {
     #[account(
         mut,
         seeds = [b"leaderboard"],
-        bump = leaderboard.bump,
+        bump,
     )]
-    pub leaderboard: Box<Account<'info, LeaderboardState>>,
+    pub leaderboard: AccountLoader<'info, LeaderboardState>,
 }
 
 #[commit]
@@ -449,9 +449,9 @@ pub struct CommitRankedWithReward<'info> {
     #[account(
         mut,
         seeds = [b"leaderboard"],
-        bump = leaderboard.bump,
+        bump,
     )]
-    pub leaderboard: Box<Account<'info, LeaderboardState>>,
+    pub leaderboard: AccountLoader<'info, LeaderboardState>,
     #[account(mut)]
     pub player_status: Account<'info, PlayerStatus>,
     #[account(mut)]
@@ -482,9 +482,9 @@ pub struct CommitDuelWithRewards<'info> {
     #[account(
         mut,
         seeds = [b"leaderboard"],
-        bump = leaderboard.bump,
+        bump,
     )]
-    pub leaderboard: Box<Account<'info, LeaderboardState>>,
+    pub leaderboard: AccountLoader<'info, LeaderboardState>,
     #[account(mut)]
     pub player_status: Account<'info, PlayerStatus>,
     #[account(mut)]
@@ -519,9 +519,9 @@ pub struct CommitPoolWithReward<'info> {
     #[account(
         mut,
         seeds = [b"leaderboard"],
-        bump = leaderboard.bump,
+        bump,
     )]
-    pub leaderboard: Box<Account<'info, LeaderboardState>>,
+    pub leaderboard: AccountLoader<'info, LeaderboardState>,
     #[account(mut)]
     pub player_status: Account<'info, PlayerStatus>,
     #[account(mut)]

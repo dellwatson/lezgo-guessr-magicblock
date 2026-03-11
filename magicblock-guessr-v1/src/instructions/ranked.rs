@@ -276,7 +276,8 @@ pub fn settle_ranked_room_handler(
         .ok_or(GuessrError::Overflow)?;
     rewards.last_update_ts = now;
 
-    update_leaderboards(&mut ctx.accounts.leaderboard, profile, rewards, now);
+    let mut leaderboard = ctx.accounts.leaderboard.load_mut()?;
+    update_leaderboards(&mut *leaderboard, profile, rewards, now);
 
     Ok(())
 }
@@ -327,7 +328,7 @@ pub struct OpenRankedRoom<'info> {
         seeds = [b"ranked-room", wallet_address.as_ref(), challenge_hash.as_ref()],
         bump
     )]
-    pub ranked_room: Account<'info, RankedRoom>,
+    pub ranked_room: Box<Account<'info, RankedRoom>>,
     #[account(
         mut,
         seeds = [b"player-status", wallet_address.as_ref()],
@@ -398,7 +399,7 @@ pub struct SettleRankedRoom<'info> {
         seeds = [b"player-profile", wallet_address.as_ref()],
         bump
     )]
-    pub player_profile: Account<'info, PlayerProfile>,
+    pub player_profile: Box<Account<'info, PlayerProfile>>,
     #[account(
         init_if_needed,
         payer = authority,
@@ -406,13 +407,13 @@ pub struct SettleRankedRoom<'info> {
         seeds = [b"player-rewards", wallet_address.as_ref()],
         bump
     )]
-    pub player_rewards: Account<'info, PlayerRewardStats>,
+    pub player_rewards: Box<Account<'info, PlayerRewardStats>>,
     #[account(
         mut,
         seeds = [b"leaderboard"],
-        bump = leaderboard.bump,
+        bump,
     )]
-    pub leaderboard: Box<Account<'info, LeaderboardState>>,
+    pub leaderboard: AccountLoader<'info, LeaderboardState>,
     pub system_program: Program<'info, System>,
 }
 

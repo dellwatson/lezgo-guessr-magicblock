@@ -18,3 +18,4 @@ cpi = ["no-entrypoint"]
 anchor-lang = { version = "0.30.1", features = ["init-if-needed"] }
 anchor-spl = "0.30.1"
 ephemeral-rollups-sdk = { version = "0.6.5", features = ["anchor"] }
+bytemuck = { version = "1.25.0", features = ["derive"] }

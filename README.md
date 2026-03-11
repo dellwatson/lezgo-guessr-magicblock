@@ -186,6 +186,7 @@ EXPO_PUBLIC_MWA_APP_ICON="https://lezgo.app/static/icons/guessr-wallet-icon.png"
 - Per-user PDAs are created on base by the session key (`join_lobby`) and used on ER after delegation.
 - End-of-game uses a new `commit_pool_with_reward` magic-action commit to sync ER state back to base and mint SPL rewards (mint amount supplied by client for demo).
 - v1 scripts live at `@programs/magicblock-guessr-v1/scripts`.
+- Full v1 flow + PDA/delegation tables: `@programs/magicblock-guessr-v1/SUMMARY.md`.
 
 ## Program Crates
 

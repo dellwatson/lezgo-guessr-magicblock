@@ -4,8 +4,9 @@ use crate::constants::LEADERBOARD_ENTRIES;
 use crate::state::{LeaderboardEntry, LeaderboardState, PlayerProfile, PlayerRewardStats};
 
 fn update_list(list: &mut [LeaderboardEntry; LEADERBOARD_ENTRIES], player: Pubkey, value: u64) {
+    let player_bytes = player.to_bytes();
     for entry in list.iter_mut() {
-        if entry.player == player {
+        if entry.player == player_bytes {
             *entry = LeaderboardEntry::default();
         }
     }
@@ -16,7 +17,7 @@ fn update_list(list: &mut [LeaderboardEntry; LEADERBOARD_ENTRIES], player: Pubke
 
     let mut insert_idx: Option<usize> = None;
     for (idx, entry) in list.iter().enumerate() {
-        if entry.player == Pubkey::default() || value >= entry.value {
+        if entry.player == [0u8; 32] || value >= entry.value {
             insert_idx = Some(idx);
             break;
         }
@@ -30,7 +31,10 @@ fn update_list(list: &mut [LeaderboardEntry; LEADERBOARD_ENTRIES], player: Pubke
     for i in (idx + 1..LEADERBOARD_ENTRIES).rev() {
         list[i] = list[i - 1];
     }
-    list[idx] = LeaderboardEntry { player, value };
+    list[idx] = LeaderboardEntry {
+        player: player_bytes,
+        value,
+    };
 }
 
 fn compute_winrate_bps(profile: &PlayerProfile) -> u64 {

@@ -133,26 +133,6 @@ pub mod guessr_multiplayer_program_v1 {
         )
     }
 
-    pub fn settle_duel_room(
-        ctx: Context<SettleDuelRoom>,
-        wallet_address: Pubkey,
-        room_id: [u8; 32],
-        winner: Pubkey,
-        is_draw: bool,
-        host_score: u64,
-        challenger_score: u64,
-    ) -> Result<()> {
-        instructions::duel::settle_duel_room_handler(
-            ctx,
-            wallet_address,
-            room_id,
-            winner,
-            is_draw,
-            host_score,
-            challenger_score,
-        )
-    }
-
     pub fn commit_match_result(
         ctx: Context<CommitMatchResult>,
         match_mode: u8,

@@ -169,7 +169,8 @@ pub fn commit_match_result_pool_handler(
     }
     rewards.last_update_ts = now;
 
-    update_leaderboards(&mut ctx.accounts.leaderboard, &ctx.accounts.player_profile, rewards, now);
+    let mut leaderboard = ctx.accounts.leaderboard.load_mut()?;
+    update_leaderboards(&mut *leaderboard, &ctx.accounts.player_profile, rewards, now);
 
     Ok(())
 }
@@ -223,7 +224,7 @@ pub struct CommitMatchResult<'info> {
         seeds = [b"player-profile", player.key().as_ref()],
         bump
     )]
-    pub player_profile: Account<'info, PlayerProfile>,
+    pub player_profile: Box<Account<'info, PlayerProfile>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -247,13 +248,13 @@ pub struct CommitMatchResultPool<'info> {
         seeds = [b"player-rewards", wallet_address.as_ref()],
         bump
     )]
-    pub player_rewards: Account<'info, PlayerRewardStats>,
+    pub player_rewards: Box<Account<'info, PlayerRewardStats>>,
     #[account(
         mut,
         seeds = [b"leaderboard"],
-        bump = leaderboard.bump,
+        bump,
     )]
-    pub leaderboard: Box<Account<'info, LeaderboardState>>,
+    pub leaderboard: AccountLoader<'info, LeaderboardState>,
     pub system_program: Program<'info, System>,
 }
 

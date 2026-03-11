@@ -1,21 +1,25 @@
 use anchor_lang::prelude::*;
+use bytemuck::{Pod, Zeroable};
 
 use crate::constants::ROOM_POOL_MAX_ENTRIES;
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Default)]
+#[repr(C)]
+#[derive(Clone, Copy, Default, Pod, Zeroable)]
 pub struct RoomPoolEntry {
     pub room_id: [u8; 32],
-    pub wallet: Pubkey,
-    pub session: Pubkey,
+    pub wallet: [u8; 32],
+    pub session: [u8; 32],
     pub status: u8,
     pub slot_filled: u8,
     pub slot_total: u8,
     pub match_mode: u8,
-    pub players: [Pubkey; 2],
+    pub players: [[u8; 32]; 2],
+    pub padding: [u8; 4],
     pub last_update_ts: i64,
 }
 
-#[account]
+#[account(zero_copy)]
+#[repr(C)]
 pub struct RoomPool {
     pub write_index: u32,
     pub entry_count: u32,

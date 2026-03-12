@@ -10,13 +10,7 @@ import {
   writeReport,
 } from './_shared';
 
-const LOBBY_STATE_SEED = new TextEncoder().encode('lobby-state');
 const PLAYER_STATUS_SEED = new TextEncoder().encode('player-status');
-
-function deriveLobby(programId: PublicKey) {
-  const [lobbyPda] = PublicKey.findProgramAddressSync([LOBBY_STATE_SEED], programId);
-  return lobbyPda;
-}
 
 function derivePlayerStatus(programId: PublicKey, player: PublicKey) {
   const [playerPda] = PublicKey.findProgramAddressSync(
@@ -30,7 +24,6 @@ async function main() {
   const connection = getConnection();
   const programId = resolveGuessrProgramId();
   const player = loadUserKeypairFromEnv('PLAYER');
-  const lobbyPda = deriveLobby(programId);
   const sessionAddressRaw = process.env.SESSION_ADDRESS?.trim();
   const sessionAddress = sessionAddressRaw
     ? new PublicKey(sessionAddressRaw)
@@ -49,12 +42,11 @@ async function main() {
     programId,
     keys: [
       { pubkey: player.publicKey, isSigner: true, isWritable: true },
-      { pubkey: lobbyPda, isSigner: false, isWritable: true },
       { pubkey: playerStatusPda, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
     data: concatBinary([
-      anchorDiscriminator('join_lobby'),
+      anchorDiscriminator('init_player_status'),
       player.publicKey.toBytes(),
       sessionAddress.toBytes(),
     ]),

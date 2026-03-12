@@ -20,6 +20,7 @@ const PLAYER_LIVE_STATE_SEED = new TextEncoder().encode('player-live-state');
 const PLAYER_PROFILE_SEED = new TextEncoder().encode('player-profile');
 const PLAYER_REWARDS_SEED = new TextEncoder().encode('player-rewards');
 const ROOM_POOL_SEED = new TextEncoder().encode('room-pool');
+const LOBBY_POOL_SEED = new TextEncoder().encode('lobby-pool-v1');
 const ROOM_ID_SEED = new TextEncoder().encode('room-id');
 const DUEL_ROOM_SEED = new TextEncoder().encode('duel-room');
 const RANKED_ROOM_SEED = new TextEncoder().encode('ranked-room');
@@ -41,6 +42,7 @@ const DELEGATE_TARGET_REWARD_CLAIM = 7;
 const DELEGATE_TARGET_LEADERBOARD = 8;
 const DELEGATE_TARGET_PLAYER_REWARDS = 9;
 const DELEGATE_TARGET_ROOM_POOL = 10;
+const DELEGATE_TARGET_LOBBY_POOL = 11;
 
 const MATCH_MODE_DUEL = 0;
 const MATCH_MODE_RANKED_SOLO = 1;
@@ -56,7 +58,8 @@ type DelegationTarget =
   | typeof DELEGATE_TARGET_REWARD_CLAIM
   | typeof DELEGATE_TARGET_LEADERBOARD
   | typeof DELEGATE_TARGET_PLAYER_REWARDS
-  | typeof DELEGATE_TARGET_ROOM_POOL;
+  | typeof DELEGATE_TARGET_ROOM_POOL
+  | typeof DELEGATE_TARGET_LOBBY_POOL;
 
 type DelegationSpec = {
   label: string;
@@ -405,6 +408,7 @@ async function main() {
   const [rankedConfigPda] = PublicKey.findProgramAddressSync([RANKED_CONFIG_SEED], programId);
   const [leaderboardPda] = PublicKey.findProgramAddressSync([LEADERBOARD_SEED], programId);
   const [roomPoolPda] = PublicKey.findProgramAddressSync([ROOM_POOL_SEED], programId);
+  const [lobbyPoolPda] = PublicKey.findProgramAddressSync([LOBBY_POOL_SEED], programId);
 
   addSpec(specs, {
     label: 'lobby-state',
@@ -429,6 +433,12 @@ async function main() {
     target: DELEGATE_TARGET_ROOM_POOL,
     pda: roomPoolPda,
     required: true,
+  });
+  addSpec(specs, {
+    label: 'lobby-pool',
+    target: DELEGATE_TARGET_LOBBY_POOL,
+    pda: lobbyPoolPda,
+    required: false,
   });
 
   for (const player of players) {
@@ -539,25 +549,57 @@ async function main() {
   );
 
   const toDelegate: DelegationSpec[] = [];
-  const skipped: string[] = [];
-  const skippedSpecs: DelegationSpec[] = [];
+  const skippedMissing: string[] = [];
+  const skippedMissingSpecs: DelegationSpec[] = [];
+  const skippedDelegated: string[] = [];
+  const skippedDelegatedSpecs: DelegationSpec[] = [];
+  const skippedWrongOwner: string[] = [];
+  const skippedWrongOwnerSpecs: DelegationSpec[] = [];
 
   for (const item of accountInfos) {
-    if (item.account) {
-      toDelegate.push(item.spec);
+    const label = item.spec.label;
+    const pdaBase58 = item.spec.pda.toBase58();
+
+    if (!item.account) {
+      if (item.spec.required) {
+        throw new Error(`Required PDA not found: ${label} (${pdaBase58})`);
+      }
+      skippedMissing.push(label);
+      skippedMissingSpecs.push(item.spec);
       continue;
     }
 
-    if (item.spec.required) {
-      throw new Error(`Required PDA not found: ${item.spec.label} (${item.spec.pda.toBase58()})`);
+    // Delegated PDAs are re-assigned to MagicBlock's delegation program on base. Attempting to
+    // delegate them again will fail because the SDK zeros the PDA data first (illegal write).
+    if (item.account.owner.equals(delegationProgramId)) {
+      skippedDelegated.push(label);
+      skippedDelegatedSpecs.push(item.spec);
+      continue;
     }
 
-    skipped.push(item.spec.label);
-    skippedSpecs.push(item.spec);
+    if (!item.account.owner.equals(programId)) {
+      const owner = item.account.owner.toBase58();
+      const msg = `${label} (${pdaBase58}) is owned by ${owner} (expected ${programId.toBase58()} or already delegated to ${delegationProgramId.toBase58()})`;
+      if (item.spec.required) {
+        throw new Error(`Required PDA has unexpected owner: ${msg}`);
+      }
+      skippedWrongOwner.push(msg);
+      skippedWrongOwnerSpecs.push(item.spec);
+      continue;
+    }
+
+    toDelegate.push(item.spec);
   }
 
   if (toDelegate.length === 0) {
-    throw new Error('No existing PDAs found to delegate.');
+    if (skippedDelegated.length > 0) {
+      console.log('No PDAs to delegate (all matching PDAs are already delegated).');
+      console.log('Already delegated:', skippedDelegated.length);
+      console.log('Missing PDAs:', skippedMissing.length);
+      console.log('Wrong owner (skipped):', skippedWrongOwner.length);
+      return;
+    }
+    throw new Error('No PDAs found to delegate (none exist on base yet).');
   }
 
   const instructions = toDelegate.map(spec =>
@@ -574,7 +616,9 @@ async function main() {
 
   console.log('Program:', programId.toBase58());
   console.log('Delegated PDAs:', toDelegate.length);
-  console.log('Skipped missing PDAs:', skipped.length);
+  console.log('Skipped missing PDAs:', skippedMissing.length);
+  console.log('Skipped already delegated PDAs:', skippedDelegated.length);
+  console.log('Skipped wrong-owner PDAs:', skippedWrongOwner.length);
   if (result.usedSingleTx) {
     console.log('Delegation completed in one transaction');
   } else {
@@ -586,7 +630,7 @@ async function main() {
 
   writeReport(
     '04_delegate_guessr_state.log',
-    `program=${programId.toBase58()} delegated=${toDelegate.length} skipped=${skipped.length} singleTx=${result.usedSingleTx} signatures=${result.signatures.join(',')}`
+    `program=${programId.toBase58()} delegated=${toDelegate.length} skippedMissing=${skippedMissing.length} skippedDelegated=${skippedDelegated.length} skippedWrongOwner=${skippedWrongOwner.length} singleTx=${result.usedSingleTx} signatures=${result.signatures.join(',')}`
   );
 
   for (const spec of toDelegate) {
@@ -597,11 +641,27 @@ async function main() {
     );
   }
 
-  for (const spec of skippedSpecs) {
+  for (const spec of skippedMissingSpecs) {
     const playerBase58 = spec.player ? spec.player.toBase58() : '';
     writeReport(
       '04_delegate_guessr_state_pdas.log',
       `skipped label=${spec.label} target=${spec.target} pda=${spec.pda.toBase58()} player=${playerBase58}`
+    );
+  }
+
+  for (const spec of skippedDelegatedSpecs) {
+    const playerBase58 = spec.player ? spec.player.toBase58() : '';
+    writeReport(
+      '04_delegate_guessr_state_pdas.log',
+      `already_delegated label=${spec.label} target=${spec.target} pda=${spec.pda.toBase58()} player=${playerBase58}`
+    );
+  }
+
+  for (const spec of skippedWrongOwnerSpecs) {
+    const playerBase58 = spec.player ? spec.player.toBase58() : '';
+    writeReport(
+      '04_delegate_guessr_state_pdas.log',
+      `skipped_wrong_owner label=${spec.label} target=${spec.target} pda=${spec.pda.toBase58()} player=${playerBase58}`
     );
   }
 }
